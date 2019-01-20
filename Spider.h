@@ -54,16 +54,19 @@ public:
 	int handleReadEvent(connection* conn);
 	int handleWriteEvent(connection* conn);
 	void closeConnection(connection* conn);
-	static void workerThread(Spider* thisPtr, void *arg);
-	static void listenThread(Spider* thisPtr, void * arg);
+	static void workerThreadCB(Spider& thisPtr, void *arg);
+	static void listenThreadCB(Spider& thisPtr, void *arg);
+	void workerThread(void *arg);
+	void listenThread(void *arg);
 	int connect(const char * ip, const short port);
 	int idle();
 	int loop(int socketFd, const char * ip, const short port);
 	int init();
+	static int initThreadCB(Spider& self);
 
 
 #define CONN_MAXFD 65536
-connection g_conn_table[CONN_MAXFD];
+connection m_conn_table[CONN_MAXFD];
 
 sig_atomic_t shut_server = 0;
 
@@ -73,6 +76,7 @@ int epfd[EPOLL_NUM];
 int lisSock;
 
 std::vector<std::thread> worker;
+std::thread listen_thread;
 
 };
 

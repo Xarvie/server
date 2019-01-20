@@ -26,7 +26,7 @@
 #include <thread>
 
 #include "concurrentqueue.h"
-
+#include <utility>
 
 Spider::Spider()
 {
@@ -160,14 +160,18 @@ void Spider::closeConnection(connection* conn)
 	close(conn->sock);
 }
 
-void Spider::workerThread(Spider* thisPtr/*TODO bug?*/, void *arg)
+void Spider::workerThreadCB(Spider& thisPtr/*TODO bug?*/, void *arg)
+{
+	thisPtr.workerThread(arg);
+}
+void Spider::workerThread(void *arg)
 {
 	int epfd = *(int *) arg;
 
 	struct epoll_event event;
 	struct epoll_event evReg;
 
-	while (!thisPtr->shut_server)
+	while (!this->shut_server)
 	{
 		int numEvents = epoll_wait(epfd, &event, 1, 1000);
 		if (numEvents == -1)
@@ -178,22 +182,22 @@ void Spider::workerThread(Spider* thisPtr/*TODO bug?*/, void *arg)
 		if (numEvents > 0)
 		{
 			int sock = event.data.fd;
-			connection* conn = &thisPtr->g_conn_table[sock];
+			connection* conn = &this->m_conn_table[sock];
 
 			if (event.events & EPOLLOUT)
 			{
-				if (thisPtr->handleWriteEvent(conn) == -1)
+				if (this->handleWriteEvent(conn) == -1)
 				{
-					thisPtr->closeConnection(conn);
+					this->closeConnection(conn);
 					continue;
 				}
 			}
 
 			if (event.events & EPOLLIN)
 			{
-				if (thisPtr->handleReadEvent(conn) == -1)
+				if (this->handleReadEvent(conn) == -1)
 				{
-					thisPtr->closeConnection(conn);
+					this->closeConnection(conn);
 					continue;
 				}
 			}
@@ -207,29 +211,33 @@ void Spider::workerThread(Spider* thisPtr/*TODO bug?*/, void *arg)
 	}
 }
 
-void Spider::listenThread(Spider* thisPtr/*TODO bug?*/, void * arg)
+void Spider::listenThreadCB(Spider& thisPtr/*TODO bug?*/, void * arg)
+{
+	thisPtr.listenThread(arg);
+}
+void Spider::listenThread(void * arg)
 {
 	int lisEpfd = epoll_create(5);
 
 	struct epoll_event evReg;
 	evReg.events = EPOLLIN;
-	evReg.data.fd = thisPtr->lisSock;
+	evReg.data.fd = this->lisSock;
 
-	epoll_ctl(lisEpfd, EPOLL_CTL_ADD, thisPtr->lisSock, &evReg);
+	epoll_ctl(lisEpfd, EPOLL_CTL_ADD, this->lisSock, &evReg);
 
 	struct epoll_event event;
 
 	int rrIndex = 0; /* round robin index */
 
-	while (!thisPtr->shut_server)
+	while (!this->shut_server)
 	{
 		int numEvent = epoll_wait(lisEpfd, &event, 1, 1000);
 		if (numEvent > 0)
 		{
-			int sock = accept(thisPtr->lisSock, NULL, NULL);
+			int sock = accept(this->lisSock, NULL, NULL);
 			if (sock > 0)
 			{
-				thisPtr->g_conn_table[sock].type = 1;
+				this->m_conn_table[sock].type = 1;
 
 				int nodelay = 1;
 				if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &nodelay,
@@ -255,8 +263,8 @@ void Spider::listenThread(Spider* thisPtr/*TODO bug?*/, void * arg)
 				evReg.data.fd = sock;
 				evReg.events = EPOLLIN | EPOLLONESHOT;
 
-				thisPtr->g_conn_table[sock].index = rrIndex;
-				epoll_ctl(thisPtr->epfd[rrIndex], EPOLL_CTL_ADD, sock, &evReg);
+				this->m_conn_table[sock].index = rrIndex;
+				epoll_ctl(this->epfd[rrIndex], EPOLL_CTL_ADD, sock, &evReg);
 				rrIndex = (rrIndex + 1) % EPOLL_NUM;
 			}
 		}
@@ -313,7 +321,7 @@ int Spider::loop(int socketFd, const char * ip, const short port)
 		if (numEvents > 0)
 		{
 			int sock = event.data.fd;
-			connection* conn = &g_conn_table[sock];
+			connection* conn = &m_conn_table[sock];
 
 			if (event.events & EPOLLOUT)
 			{
@@ -343,13 +351,19 @@ int Spider::loop(int socketFd, const char * ip, const short port)
 	return 0;
 }
 
+int Spider::initThreadCB(Spider& self)
+{
+	self.init();
+	return 0;
+}
+
 int Spider::init()
 {
 	int c;
 	for (c = 0; c < CONN_MAXFD; ++c)
 	{
-		g_conn_table[c].sock = c;
-		g_conn_table[c].cbAlloc();
+		m_conn_table[c].sock = c;
+		m_conn_table[c].cbAlloc();
 	}
 
 	int epi;
@@ -380,26 +394,27 @@ int Spider::init()
 
 	listen(lisSock, 4096);
 
-	std::thread lisTid(Spider::listenThread, this, nullptr);
+	//std::move(std::thread(Spider::listenThreadCB, this, nullptr));
+	//listen_thread = ;
 
 	int i;
 
 	for (i = 0; i < EPOLL_NUM; ++i)
 	{
-		worker.push_back(std::thread(Spider::workerThread, this, epfd + i));
+		//worker.push_back(std::thread(Spider::workerThreadCB, this, epfd + i));
 	}
 
 	for (i = 0; i < EPOLL_NUM; ++i)
 	{
 		worker[i].join();
 	}
-	lisTid.join();
+	listen_thread.join();
 
 	struct epoll_event evReg;
 
 	for (c = 0; c < CONN_MAXFD; ++c)
 	{
-		connection* conn = g_conn_table + c;
+		connection* conn = m_conn_table + c;
 		if (conn->type)
 		{
 			epoll_ctl(epfd[conn->index], EPOLL_CTL_DEL, conn->sock, &evReg);
