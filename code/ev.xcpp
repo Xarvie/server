@@ -1,0 +1,1005 @@
+#include "DefConfig.h"
+
+#include "ev.h"
+
+INITIALIZE_EASYLOGGINGPP
+
+cb_read cb = NULL;
+
+const int print = 0;
+
+//#include <jemalloc/jemalloc.h>
+const int fdIndex = 0;
+
+const int recIndex = 1;
+
+const int buffHeapLen = 2;
+
+const int clientLenIndex = 3;
+
+const int MsgRead = 0;
+
+const int MsgWrite = 1;
+
+const int MsgWriteEagin = 2;
+
+const int MsgUnknow = 3;
+
+const int MsgHeartCheck = 4;
+
+const int writeEagain = 0;
+
+const int writeFdIndex = 1;
+
+const int writeRecIndex = 2;
+
+const int writeBuffHeapLen = 3;
+
+const int writeClientLenIndex = 4;
+
+std::string projectRootDir = "../";
+//取是否Eagain
+#define getwEagain(x) (((int*)x)[writeEagain])
+
+
+//取对端FD
+#define getwClientFd(x) (((int*)x)[writeFdIndex])
+
+//取剩余待写出的长度
+#define getwLeftByteNum(x) (((int*)x)[writeRecIndex])
+
+//取当前Msg长度
+#define getwClientByteNum(x) (((int*)x)[writeClientLenIndex])
+
+//取Msg的头指针
+#define getwClientBuffer(x) ((char*)(((int*)x)+writeClientLenIndex))
+
+//取写堆长度
+#define getwHeapSize(x) (((int*)x)[writeBuffHeapLen])
+
+
+
+#define MAX_FD 65535
+
+unsigned int uClientId[MAX_FD];
+
+unsigned int uClientIndex = 0;//为0已回收, 非0使用中
+ChannelData channelDatas[MAX_FD];//Record all channel data
+static long long nops = 1E7;
+
+int epoll_fd = 0;
+
+
+const int BUFF_SIZE = 2048;
+
+moodycamel::ConcurrentQueue<ChannelData> netQueue[NET_QUEUE_NUM];
+
+#define N_BACKLOG 64
+
+int xx = 0;
+
+#define MAX_BUFF_CNT 40
+
+
+std::thread netQueueThreads[NET_QUEUE_NUM];
+
+void *val = 0;
+
+
+
+#define MAXEVENTS 64
+#define PORT 6666
+
+long rec[5];
+
+long rec3[20];
+
+static void *bits_join(int hi, int lo)
+{
+    intptr_t int64 = hi;
+    int64 <<= 32;
+    int64 += lo;
+    return (void *) int64;
+}
+
+static int bits_lo(void *ptr)
+{
+    intptr_t int64 = (intptr_t) ptr;
+    int64 &= 0x00000000ffffffff;
+    return (int) int64;
+}
+
+static int bits_hi(void *ptr)
+{
+    intptr_t int64 = (intptr_t) ptr;
+    int64 >>= 32;
+    return (int) int64;
+}
+
+static int EpollMod(int epoll_fd, int fd, int events)
+{
+    epoll_event event;
+    memset(&event, 0, sizeof(event));
+    event.data.fd = fd;
+    event.events = events;
+    return epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
+
+}
+
+static int EpollDel(int epoll_fd, int fd, int events)
+{
+    epoll_event event;
+    memset(&event, 0, sizeof(event));
+    event.data.fd = fd;
+    event.events = events;
+    return epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
+}
+
+static void set_nonblocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) {
+        perror("fcntl()");
+        return;
+    }
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl()");
+    }
+}
+
+int hardWork()
+{
+    volatile unsigned long long i = 0;
+    for (i = 0; i < 1e7; i++) {
+        volatile int b = 0;
+
+        // for(b = 0; b < 1e6; b++);
+    }
+    return i;
+}
+
+void onDisconnect(int fd, DisType disType)
+{
+    std::string type = "";
+    switch (disType) {
+        case DisType::DISCONNECT_HEART_STOP:
+        {
+            type = "DISCONNECT_HEART_STOP";
+            break;
+        }
+        case DisType::DISCONNECT_SOCK_CLOSE:
+        {
+            type = "DISCONNECT_SOCK_CLOSE";
+            break;
+        }
+        case DisType::DISCONNECT_EPOLL_UNKNOW:
+        {
+            type = "DISCONNECT_EPOLL_UNKNOW";
+            break;
+        }
+        case DisType::DISCONNECT_READ_WRITE_ERROR:
+        {
+            type = "DISCONNECT_READ_WRITE_ERROR";
+            break;
+        }
+        case DisType::DISCONNECT_OVERSIZE_WRITE_BYTE:
+        {
+            type = "DISCONNECT_OVERSIZE_WRITE_BYTE";
+            break;
+        }
+        case DisType::DISCONNECT_OVERSIZE_READ_BYTE:
+        {
+            type = "DISCONNECT_OVERSIZE_READ_BYTE";
+            break;
+        }
+
+    }
+    printf("Disconnect fd:%d,type:%s\n", fd, type.c_str());
+}
+
+int sendMsg(int fd, unsigned char *msg)
+{
+    if (print)
+        printf("sendMsg:begin\n");
+    int workId = fd % NET_QUEUE_NUM;
+    //Msg p = {MsgRead, fd, (char**) events[i].data.ptr};
+    ChannelData data = channelDatas[fd];
+    data.msgType = MsgWrite;
+    data.writeMsgPtr = msg;
+    //printf("sendMsg: len:%d\n", (int)strlen((char*)(msg + 4)));
+    netQueue[workId].enqueue(data);
+}
+
+static int lastOutput = 0;
+
+unsigned char *makeBigFile(const char *ptr, int len)
+{
+    int multi = 1e4;
+    int newLen = len * multi;
+    unsigned char *bigFile = (unsigned char *) malloc(4 + newLen);
+    //bigFile[newLen] = 0;
+    *(int *) bigFile = 4 + newLen;
+    printf("makeBigFile:size:%d\n", *(int *) bigFile);
+    for (int i = 0; i < multi; i++) {
+        memcpy(bigFile + sizeof(int) + (i * len), ptr, len);
+    }
+
+
+    return bigFile;
+}
+
+static void *thread2()
+{
+    while (true) {
+        static int ext;
+        ext++;
+        if (ext > 300) {
+            exit(0);
+        }
+        int sum = 0;
+        for (int i = 0; i < 20; i++) {
+            sum += rec3[i];
+        }
+        //printf("QPS:%dk\n", (sum-lastOutput)/1000);
+        lastOutput = sum;
+
+        sleep(1000);
+    }
+}
+
+static void *thread3(void *bits)
+{
+    while (true) {
+        hardWork();
+    }
+}
+
+#define getClientFd(x) (((int*)x)[fdIndex])
+#define getLeftByteNum(x) (((int*)x)[recIndex])
+#define getClientByteNum(x) (((int*)x)[clientLenIndex])
+#define getClientBuffer(x) ((char*)(((int*)x)+clientLenIndex))
+#define getHeapSize(x) (((int*)x)[buffHeapLen])
+
+static int writePack(int &id, int &ffd,
+                     unsigned char *&item, unsigned char **&readPtr,
+                     unsigned char *&witem, unsigned char **&writePtr,
+                     unsigned char *&writeMsgPtr, int removeEagain)
+{
+    if (removeEagain == 0) {
+        int firstLeftByte = getwLeftByteNum(witem);
+        getwLeftByteNum(witem) += *(int *) writeMsgPtr;
+        if (getwLeftByteNum(witem) < 0)
+            if (print)
+                printf("lefta%d\n", getwLeftByteNum(witem));
+        if (getwHeapSize(witem) < getwLeftByteNum(witem)) {
+            int newSize = ((int) (sizeof(int) * writeClientLenIndex + getwLeftByteNum(witem) / 2048) + 2) * 2048;
+            printf("WritePack: buffer newSize:%d\n", newSize);
+            *writePtr = (unsigned char *) realloc(witem, newSize);
+            witem = *writePtr;
+            getwHeapSize(witem) = newSize;
+            int test_num = getwClientByteNum(witem);
+            if (getwClientByteNum(witem) > 1024 * 1024 * 2000) {
+                printf("Error:write clientByte > 2000M fd:%d\n", getwClientFd(witem));
+                uClientId[ffd] = 0;
+                close(getwClientFd(witem));
+                free(item);
+                free(readPtr);
+                free(witem);
+                free(writePtr);
+                onDisconnect(ffd, DisType::DISCONNECT_OVERSIZE_WRITE_BYTE);
+                return 1;
+            }
+        }
+        int a = getwLeftByteNum(witem);
+        int b = getwClientByteNum(witem);
+        int c = *(unsigned int *) writeMsgPtr;
+        memcpy(getwClientBuffer(witem) + firstLeftByte,
+               writeMsgPtr, *(unsigned int *) writeMsgPtr);
+        free(writeMsgPtr);
+        // cpy end
+        if (getwEagain(witem) == 1)
+            return 0;
+
+    }
+    int allSize = getwLeftByteNum(witem);
+    int left = getwLeftByteNum(witem);
+
+    for (;;) {
+        //int* readLenPtr = (int*)ptr;// todo judge endian
+        //left = getwLeftByteNum(witem);
+        ssize_t nbytes = write(getwClientFd(witem), getwClientBuffer(witem) + allSize - getwLeftByteNum(witem),
+                               getwLeftByteNum(witem));
+        if (print)
+            printf("writePack() nbytes:%ld ,allSize:%d, wLeftByteNum:%d\n", nbytes, allSize, getwLeftByteNum(witem));
+        if (nbytes == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                int &curLeft = getwLeftByteNum(witem);
+                if (left != getwLeftByteNum(witem)) {
+                    memmove(getwClientBuffer(witem), getwClientBuffer(witem) + allSize - getwLeftByteNum(witem),
+                            getwLeftByteNum(witem));
+
+
+                    if (print)
+                        printf("wirte left:%d\n", curLeft);
+                }
+                getwEagain(witem) = 1;
+                if (EpollMod(epoll_fd, ffd, EPOLLOUT | EPOLLET) == -1) {
+                    perror("epoll_ctl()");
+                    return -1;
+                }
+
+                printf("== epollMod: OUT, fd: %d, return -1 WriteEagain == \n", ffd);
+                //if (print)
+
+                //printf("write() fd: %d, return -1 WriteEagain\n", ffd);
+                //printf("finished reading data from client\n");
+                break;
+            } else {
+                printf("write() with %d\n", getClientFd(witem));
+
+                uClientId[ffd] = 0;
+                close(getwClientFd(witem));
+                free(item);
+                free(readPtr);
+                free(witem);
+                free(writePtr);
+                onDisconnect(ffd, DisType::DISCONNECT_EPOLL_UNKNOW);
+                break;
+            }
+        } else if (nbytes == 0) {
+            printf("finished with %d\n", getClientFd(witem));
+            uClientId[ffd] = 0;
+            close(getwClientFd(witem));
+            free(item);
+            free(readPtr);
+            free(witem);
+            free(writePtr);
+            onDisconnect(ffd, DisType::DISCONNECT_SOCK_CLOSE);
+            break;
+            //break;
+        } else {
+            getwLeftByteNum(witem) -= nbytes;
+            if (getwLeftByteNum(witem) == 0) {
+                if (print)
+                    printf("wirte over\n");
+
+                if (getwEagain(witem) == 1) {
+                    getwEagain(witem) = 0;
+                    if (EpollMod(epoll_fd, ffd, EPOLLIN | EPOLLET) == -1) {
+                        perror("epoll_ctl() EPOLLIN | EPOLLET");
+                        return -1;
+                    }
+                    printf("switch to EPOLLIN, fd: %d\n", ffd);
+                }
+
+
+                break;
+
+            } else {
+                continue;
+            }
+
+        }
+    }
+    return 0;
+}
+
+int makeMessage(int ffd, int number, google::protobuf::Message *msg)
+{
+    int len = msg->ByteSize();
+    int *buff = (int *) malloc(sizeof(int) + sizeof(int) + len);
+    buff[0] = len + sizeof(int) + sizeof(int);
+    buff[1] = number;
+    msg->SerializeToArray((char *) buff + sizeof(int) + sizeof(int), len);
+    sendMsg(ffd, (unsigned char *) buff);
+}
+
+inline google::protobuf::Message *createMessage(const std::string &type_name)
+{
+    google::protobuf::Message *message = NULL;
+    const google::protobuf::Descriptor *descriptor =
+        google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(type_name);
+    if (descriptor) {
+        const google::protobuf::Message *prototype =
+            google::protobuf::MessageFactory::generated_factory()->GetPrototype(descriptor);
+        if (prototype) {
+            message = prototype->New();
+        }
+    }
+    return message;
+}
+
+int heartbeats(int ffd, google::protobuf::Message *protoMsg)
+{
+    Proto10000000 *req = dynamic_cast<Proto10000000 *>(protoMsg);
+    if (req == NULL)
+        abort();
+    //printf("recv Proto10000000: ret = %d\n", req->ret());
+    Proto50000000 rsp;
+    rsp.set_ret(1);
+    makeMessage(ffd, 50000000, &rsp);
+    channelDatas[ffd].heartbeats = 1;
+    return 0;
+};
+
+int onRead(int ffd, void *buff, int len)
+{
+    unsigned int number = *(int *) buff;
+    std::string s = std::string("Proto") + std::to_string(number);
+    google::protobuf::Message *protoMsg = createMessage(s);
+    if (protoMsg->ParseFromArray((void *) ((char *) buff + sizeof(int)), len - sizeof(int))) {
+        switch (number) {
+            case 10000000: {
+                return heartbeats(ffd, protoMsg);
+            }
+            default: {
+                abort();
+            }
+        }
+    } else {
+        delete protoMsg;
+        return -1;
+    }
+    sendMsg(ffd, makeBigFile((char *) buff, len));
+    return 0;
+}
+
+static int readPack(int &id, int &ffd,
+                    unsigned char *&item, unsigned char **&readPtr,
+                    unsigned char *&witem, unsigned char **&writePtr)
+{
+    for (;;) {
+        //int* readLenPtr = (int*)ptr;// todo judge endian
+#if 0
+        int fd = getClientFd(item);
+        char *clibuf = getClientBuffer(item);
+        int left = getLeftByteNum(item);
+        //if (print)
+        //    printf("readPack: getLeftByteNum:%d\n    clibuf:%d\n", left, clibuf);
+        ssize_t nbytes = read(getClientFd(item), getClientBuffer(item) + getLeftByteNum(item), BUFF_SIZE);
+        clibuf = getClientBuffer(item);
+#else
+        char *buff = (char *)malloc(BUFF_SIZE+1);
+        buff[BUFF_SIZE] = 0;
+        ssize_t nbytes = read(getClientFd(item), buff, BUFF_SIZE);
+#endif
+        if (nbytes == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                epoll_event event;
+                unsigned short i = 0;
+                memset(&event, 0, sizeof(event));
+                event.data.fd = ffd;
+                event.events = EPOLLIN | EPOLLET;
+                if (getwEagain(witem) != 1)
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, ffd, &event) == -1) {
+                        perror("epoll_ctl()");
+                        return -1;
+                    }
+
+                if (print)
+                    printf("\n");
+                //printf("finished reading data from client\n");
+                break;
+            } else {
+
+                uClientId[ffd] = 0;
+                close(getClientFd(item));
+                free(item);
+                free(readPtr);
+                free(witem);
+                free(writePtr);
+                onDisconnect(ffd, DisType::DISCONNECT_READ_WRITE_ERROR);
+                break;
+            }
+        } else if (nbytes == 0) {
+            uClientId[ffd] = 0;
+            close(getClientFd(item));
+            free(item);
+            free(readPtr);
+            free(witem);
+            free(writePtr);
+            onDisconnect(ffd, DisType::DISCONNECT_SOCK_CLOSE);
+            break;
+        } else {
+
+            if(cb)
+            {
+                cb(nbytes, buff);
+            }
+#if 0
+            getLeftByteNum(item) += nbytes;
+            int left = getLeftByteNum(item);
+            if (left < 0) {
+                if (print)
+                    printf("lefta%d\n", left);
+            }
+            int &byte = getLeftByteNum(item);
+            if (getLeftByteNum(item) >= 4) {
+                if (getHeapSize(item) - getLeftByteNum(item) < 2048) {
+                    int newSize = getHeapSize(item) * 2;
+                    *readPtr = (unsigned char *) realloc(item, newSize);
+                    item = *readPtr;
+                    getHeapSize(item) = newSize;
+                    int &byte2 = getLeftByteNum(item);
+                    if (getClientByteNum(item) > 1024 * 1024 * 5) {
+                        printf("Error:clientByte > 5M fd:%d\n", getClientFd(item));
+                        uClientId[ffd] = 0;
+                        close(getClientFd(item));
+                        free(item);
+                        free(readPtr);
+                        free(witem);
+                        free(writePtr);
+                        onDisconnect(ffd, DisType::DISCONNECT_OVERSIZE_READ_BYTE);
+                        return -1;
+                    }
+                }
+            }
+
+            while (getLeftByteNum(item) >= 4 && getLeftByteNum(item) >= getClientByteNum(item))//todo clientByte==0?
+            {
+                if (getLeftByteNum(item) == getClientByteNum(item)) {
+                    if (true) {
+                        //char *out = (char *) malloc(getClientByteNum(item) + 1);
+                        //out[getClientByteNum(item) - 4] = 0;
+                        char *gCliBuff = getClientBuffer(item);
+                        //memcpy(out, gCliBuff + sizeof(int), getClientByteNum(item) - sizeof(int));
+                        //if (print)
+                        //    printf("recv1 %d:%s\n", getClientByteNum(item), out);
+                        //free(out);
+
+                        onRead(ffd, gCliBuff + sizeof(int), getClientByteNum(item) - sizeof(int));
+
+                    }
+                    if (rec3[id]++ > 1e7) {
+                        //exit(EXIT_SUCCESS);
+                    }
+
+                    getLeftByteNum(item) -= getClientByteNum(item);
+                } else {
+                    if (true) {
+                        // char *out = (char *) malloc(getClientByteNum(item) + 1);
+                        //out[getClientByteNum(item) - 4] = 0;
+                        char *gCliBuff = getClientBuffer(item);
+                        //memcpy(out, gCliBuff + sizeof(int), getClientByteNum(item) - sizeof(int));
+                        //if (print)
+                        //    printf("recv2 %d:%s\n", getClientByteNum(item), out);
+                        //free(out);
+
+                        onRead(ffd, gCliBuff + sizeof(int), getClientByteNum(item) - sizeof(int));
+                    }
+                    if (rec3[id]++ > 1e7) {
+                        //exit(EXIT_SUCCESS);
+                    }
+                    int thisFrameByteNum = getClientByteNum(item);
+
+                    memmove(getClientBuffer(item), getClientBuffer(item) + getClientByteNum(item),
+                            getLeftByteNum(item) - getClientByteNum(item));
+                    getLeftByteNum(item) -= thisFrameByteNum;
+                    int left = getLeftByteNum(item);
+                    if (left < 0) {
+                        if (print)
+                            printf("leftb%d\n", left);
+                    }
+                }
+                int left23 = getLeftByteNum(item);
+                if (left23 < 0) {
+                    if (print)
+                        printf("lefte%d\n", left23);
+                }
+                int x = getLeftByteNum(item);
+
+                int left = getLeftByteNum(item);
+                if (left < 0) {
+                    if (print)
+                        printf("leftc%d\n", left);
+                }
+            }
+#endif
+        }
+    }
+    return 0;
+}
+
+ChannelData items[NET_QUEUE_NUM];
+
+static void readSockThread(int id)
+{
+    //sleep(30);
+    //int id = bits_hi(bits);
+    rec[id] = 0;
+    rec3[id] = 0;
+    while (true) {
+        ChannelData &thisItem = items[id];
+        if (!netQueue[id].try_dequeue(thisItem)) {
+            usleep(1000);
+            continue;
+        }
+        //在对端断线时 uClientId[ffd] = 0(当前线程)
+        //在对端断线之后 ffd被系统复用时(epoll accept) uClientId[ffd] = uClientIndex++
+        //所以在途的Msg只要带上当时发送的uid和fd到了这里就能校验有效
+        //校验错误直接抛弃,writer需要回收msg堆内存
+        int type = thisItem.msgType;
+        if (type == MsgHeartCheck) {
+            int thisFd = NET_QUEUE_NUM - id;
+            for (; thisFd < MAX_FD; thisFd += NET_QUEUE_NUM) {
+                if (uClientId[thisFd] != channelDatas[thisFd].uid || uClientId[thisFd] == 0)
+                    continue;
+                if (channelDatas[thisFd].heartbeats == 1) {
+                    channelDatas[thisFd].heartbeats = 0;
+                } else {
+                    int ffd = thisItem.fd;
+                    unsigned char **readPtr = thisItem.read;
+                    unsigned char **writePtr = thisItem.write;
+                    unsigned char *item = *readPtr;
+                    unsigned char *witem = *writePtr;
+                    uClientId[ffd] = 0;
+                    close(getwClientFd(witem));
+                    free(item);
+                    free(readPtr);
+                    free(witem);
+                    free(writePtr);
+                    onDisconnect(ffd, DisType::DISCONNECT_HEART_STOP);
+                }
+
+            }
+        }
+
+        int ffd = thisItem.fd;
+        unsigned int uid = thisItem.uid;
+
+        unsigned char **readPtr = thisItem.read;
+        unsigned char **writePtr = thisItem.write;
+        unsigned char *writeMsgPtr = thisItem.writeMsgPtr;
+        if (uClientId[ffd] != uid || uClientId[ffd] == 0) //thisMsg uid != cur_uid
+        {
+            if (type == MsgWrite) {
+                free(writeMsgPtr);
+            }
+            continue;
+        }
+        unsigned char *item = *readPtr;
+        unsigned char *witem = *writePtr;
+        if (item == NULL) {
+
+            printf("NULL\n");
+            continue;
+        }
+        //int fd = ((int*)item)[fdIndex];
+        /*
+         *
+         * |int|int|int|xxxxxxxxxxxx
+         * ^
+         * fd
+         *     ^
+         *     recvLen
+         *         ^
+         *         maxLen
+         * */
+        //char* clientBuf = ptr + sizeof(int)*2;
+
+        switch (type) {
+            case MsgRead: {
+                int ret = readPack(id, ffd, item, readPtr, witem, writePtr);
+                if (ret == 1)
+                    break;
+                else if (ret == -1)
+                    return;
+                break;
+            }
+            case MsgWrite: {
+                writePack(id, ffd, item, readPtr, witem, writePtr, writeMsgPtr, 0);
+                break;
+            }
+            case MsgWriteEagin: {
+                writePack(id, ffd, item, readPtr, witem, writePtr, writeMsgPtr, 1);
+                break;
+            }
+            case MsgUnknow: {
+                {
+                    int ffd = thisItem.fd;
+                    unsigned char **readPtr = thisItem.read;
+                    unsigned char **writePtr = thisItem.write;
+                    unsigned char *item = *readPtr;
+                    unsigned char *witem = *writePtr;
+                    uClientId[ffd] = 0;
+                    close(getwClientFd(witem));
+                    free(item);
+                    free(readPtr);
+                    free(witem);
+                    free(writePtr);
+                    onDisconnect(ffd, DisType::DISCONNECT_EPOLL_UNKNOW);
+                }
+                break;
+            }
+            default: {
+                abort();
+                return;
+            }
+        }
+    }
+    printf("%s", "aaaaaa\n");
+    return;
+}
+
+bool first = 1;
+
+static unsigned int idx;
+
+void rolloutHandler(const char *filename, std::size_t size)
+{
+    std::cout << "************** Rolling out [" << filename << "] because it reached [" << size << " bytes]"
+              << std::endl;
+
+    std::stringstream ss;
+    ss << "mv " << filename << " bin/log-backup-" << ++idx;
+    system(ss.str().c_str());
+}
+void threadHeartBeatsCheckFunc()
+{
+    for (;;) {
+        sleep(60);
+        ChannelData err;
+        err.msgType = MsgHeartCheck;
+        for (int i = 0; i < NET_QUEUE_NUM; i++) {
+            int workId = i;
+            netQueue[workId].enqueue(err);
+        }
+
+    }
+
+}
+
+epoll_event event;
+int sock;
+int create()
+{
+    el::Loggers::addFlag(el::LoggingFlag::MultiLoggerSupport);
+
+    el::Configurations networkConf(projectRootDir + "code/log/network.logconf");
+    el::Configurations mapConf(projectRootDir + "code/log/map.logconf");
+
+    el::Logger *networkLogger = el::Loggers::getLogger("network");
+    el::Logger *mapLogger = el::Loggers::getLogger("map");
+
+    el::Loggers::reconfigureLogger(networkLogger, networkConf);
+    el::Loggers::reconfigureLogger(mapLogger, mapConf);
+
+
+
+//    for(int i = 0 ; i<1000;i++)
+//    {
+//
+//        CLOG(INFO, "default", "network") << "net: waho, waho~";
+//        CLOG(INFO, "default", "map") << "map: map, waho~";
+//    }
+
+
+//    std::thread logRotatorThread([]() {
+//        const std::chrono::seconds wakeUpDelta = std::chrono::seconds(20);
+//        auto nextWakeUp = std::chrono::system_clock::now() + wakeUpDelta;
+//
+//        while (true) {
+//            std::this_thread::sleep_until(nextWakeUp);
+//            nextWakeUp += wakeUpDelta;
+//            LOG(INFO) << "About to rotate log file!";
+//            auto L = el::Loggers::getLogger("default");
+//            if (L == nullptr)LOG(ERROR) << "Oops, it is not called default!";
+//            else L->reconfigure();
+//        }
+//
+//    });
+//
+
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) {
+        perror("socket()");
+        return 1;
+    }
+    int enable = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable))
+        == -1) {
+        perror("setsockopt()");
+        return 1;
+    }
+
+    int peer_buf_len = 1024;
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &peer_buf_len, sizeof(peer_buf_len)) == -1) {
+        perror("error: SO_SNDBUF");
+    }
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &peer_buf_len, sizeof(peer_buf_len)) == -1) {
+        perror("error: SO_RCVBUF");
+    }
+
+    set_nonblocking(sock);
+
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        perror("epoll_create1()");
+        return 1;
+    }
+
+    memset(&event, 0, sizeof(event));
+    event.data.fd = sock;
+    event.events = EPOLLIN | EPOLLET;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &event) == -1) {
+        perror("epoll_ctl()");
+        return 1;
+    }
+    return 0;
+}
+
+int connect(const char * ip, const short port)
+{
+    struct sockaddr_in svraddr;
+    svraddr.sin_family = AF_INET;
+    if (strlen(ip))
+        svraddr.sin_addr.s_addr = inet_addr(ip);
+    else
+        svraddr.sin_addr.s_addr = INADDR_ANY;
+    if (svraddr.sin_addr.s_addr == INADDR_NONE)
+    {
+        return false;
+    }
+    svraddr.sin_port = htons(port);
+    int ret = connect(sock, (struct sockaddr*)&svraddr, sizeof(svraddr));
+    if (ret != 0 && errno != EINPROGRESS)
+    {
+        return false;
+    }
+    return true;
+}
+
+int bindip(const char * ip, const short port)
+{
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr(ip);
+    addr.sin_port = htons(port);
+    if (bind(sock, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+        perror("bind()");
+        return 1;
+    }
+
+    return 0;
+}
+
+
+int listen()
+{
+    if (listen(sock, SOMAXCONN) < 0) {
+        perror("listen()");
+        return 1;
+    }
+    return 0;
+}
+
+int send()
+{
+    char* str = strdup("1234567890");
+    sendMsg(sock, (unsigned char*)str);
+}
+
+int loop()
+{
+    //std::thread threadHeartBeats(threadHeartBeatsCheckFunc);
+    //std::thread ths_check(thread2);
+    for (int i = 0; i < NET_QUEUE_NUM; i++)
+        netQueueThreads[i] = std::thread(readSockThread, i);
+
+    epoll_event *events = (epoll_event *) calloc(MAXEVENTS, sizeof(event));
+    for (;;) {
+        int nevents = epoll_wait(epoll_fd, events, MAXEVENTS, -1);
+        if (nevents == -1) {
+            perror("epoll_wait()");
+            continue;
+        }
+        for (int i = 0; i < nevents; i++) {
+            if (!(events[i].events & EPOLLIN || events[i].events & EPOLLOUT || events[i].events & EPOLLHUP)) {
+                fprintf(stderr, "epoll error\n");
+                {
+                    int workId = events[i].data.fd % NET_QUEUE_NUM;
+                    ChannelData err = channelDatas[events[i].data.fd];
+                    err.msgType = MsgUnknow;
+                    netQueue[workId].enqueue(err);
+                }
+                continue;
+            } else if (events[i].data.fd == sock) {
+
+                for (;;) {
+                    //EPOLL_CT
+                    struct sockaddr in_addr;
+                    socklen_t in_addr_len = sizeof(in_addr);
+                    int client = accept(sock, &in_addr, &in_addr_len);
+                    if (client == -1) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            break;
+                        } else {
+                            perror("accept()");
+                            return 1;
+                        }
+                    } else {
+                        if (print)
+                            printf("accepted new connection on fd %d\n", client);
+
+                        int nodelay = 1;
+                        if (setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0)
+                            perror("error: nodelay");
+
+
+                        int peer_buf_len = 1024;
+                        if (::setsockopt(client, SOL_SOCKET, SO_SNDBUF, &peer_buf_len, sizeof(peer_buf_len)) == -1) {
+                            perror("error: SO_SNDBUF");
+                        }
+                        if (::setsockopt(client, SOL_SOCKET, SO_RCVBUF, &peer_buf_len, sizeof(peer_buf_len)) == -1) {
+                            perror("error: SO_RCVBUF");
+                        }
+
+                        set_nonblocking(client);
+
+                        event.events = EPOLLIN | EPOLLET;
+                        const int defaultReadHeapSize = sizeof(int) * clientLenIndex + BUFF_SIZE;
+
+                        ChannelData *cData = &channelDatas[client];
+                        cData->msgType = 0;
+                        event.data.fd = client;
+                        cData->read = (unsigned char **) malloc(sizeof(unsigned char **));
+                        *cData->read = (unsigned char *) malloc(defaultReadHeapSize);
+                        memset(*cData->read, 0, defaultReadHeapSize);
+                        ((int *) *(cData->read))[fdIndex] = client;
+                        ((int *) *(cData->read))[buffHeapLen] = defaultReadHeapSize;
+                        unsigned int tmpuid = ++uClientIndex;
+                        if (tmpuid == 0)
+                            tmpuid = ++uClientIndex;
+                        cData->uid = uClientId[client] = tmpuid;
+                        cData->fd = client;
+
+                        const int defaultWriteHeapSize = sizeof(int) * writeClientLenIndex + BUFF_SIZE;
+                        cData->write = (unsigned char **) malloc(sizeof(unsigned char **));
+                        *cData->write = (unsigned char *) malloc(defaultWriteHeapSize);
+                        memset(*cData->write, 0, defaultWriteHeapSize);
+                        ((int *) *(cData->write))[writeFdIndex] = client;
+                        ((int *) *(cData->write))[writeBuffHeapLen] = defaultWriteHeapSize;
+
+                        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client, &event)
+                            == -1) {
+                            free(cData->read);
+                            perror("epoll_ctl()");
+                            return 1;
+                        }
+                    }
+                }
+            } else {
+                int recvFd = events[i].data.fd;
+                int testX = 0;
+
+                if (events[i].events & EPOLLIN) {
+                    if (print)
+                        LOG(INFO) << "EPOLLIN";
+                    int workId = recvFd % NET_QUEUE_NUM;
+                    channelDatas[recvFd].msgType = MsgRead;
+                    netQueue[workId].enqueue(channelDatas[recvFd]);
+                    testX++;
+                }
+
+                if (events[i].events & EPOLLOUT) {
+                    if (print)
+                        LOG(INFO) << "EPOLLOUT";
+                    //printf("EPOLLOUT\n");
+                    int workId = recvFd % NET_QUEUE_NUM;
+                    channelDatas[recvFd].msgType = MsgWriteEagin;
+                    netQueue[workId].enqueue(channelDatas[recvFd]);
+                    testX++;
+                }
+                if (testX >= 2) {
+                    abort();
+                }
+
+            }
+        }
+    }
+
+    el::Helpers::uninstallPreRollOutCallback();
+    return 0;
+}
