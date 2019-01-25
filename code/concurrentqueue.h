@@ -1711,7 +1711,7 @@ private:
 				pr_blockIndexSize = poolBasedIndexSize;
 			}
 			
-			new_block_index(0);		// This creates an index with double the number of current entries, i.e. EXPLICIT_INITIAL_INDEX_SIZE
+			new_block_index(0);		// This creates an rrindex with double the number of current entries, i.e. EXPLICIT_INITIAL_INDEX_SIZE
 		}
 		
 		~ExplicitProducer()
@@ -1719,7 +1719,7 @@ private:
 			// Destruct any elements not yet dequeued.
 			// Since we're in the destructor, we can assume all elements
 			// are either completely dequeued or completely not (no halfways).
-			if (this->tailBlock != nullptr) {		// Note this means there must be a block index too
+			if (this->tailBlock != nullptr) {		// Note this means there must be a block rrindex too
 				// First find the block that's partially dequeued, if any
 				Block* halfDequeuedBlock = nullptr;
 				if ((this->headIndex.load(std::memory_order_relaxed) & static_cast<index_t>(BLOCK_SIZE - 1)) != 0) {
@@ -1746,7 +1746,7 @@ private:
 						i = static_cast<size_t>(this->headIndex.load(std::memory_order_relaxed) & static_cast<index_t>(BLOCK_SIZE - 1));
 					}
 					
-					// Walk through all the items in the block; if this is the tail block, we need to stop when we reach the tail index
+					// Walk through all the items in the block; if this is the tail block, we need to stop when we reach the tail rrindex
 					auto lastValidIndex = (this->tailIndex.load(std::memory_order_relaxed) & static_cast<index_t>(BLOCK_SIZE - 1)) == 0 ? BLOCK_SIZE : static_cast<size_t>(this->tailIndex.load(std::memory_order_relaxed) & static_cast<index_t>(BLOCK_SIZE - 1));
 					while (i != BLOCK_SIZE && (block != this->tailBlock || i != lastValidIndex)) {
 						(*block)[i++]->~T();
@@ -1793,11 +1793,11 @@ private:
 					this->tailBlock = this->tailBlock->next;
 					this->tailBlock->ConcurrentQueue::Block::template reset_empty<explicit_context>();
 					
-					// We'll put the block on the block index (guaranteed to be room since we're conceptually removing the
+					// We'll put the block on the block rrindex (guaranteed to be room since we're conceptually removing the
 					// last block from it first -- except instead of removing then adding, we can just overwrite).
-					// Note that there must be a valid block index here, since even if allocation failed in the ctor,
+					// Note that there must be a valid block rrindex here, since even if allocation failed in the ctor,
 					// it would have been re-attempted when adding the first block to the queue; since there is such
-					// a block, a block index must have been successfully allocated.
+					// a block, a block rrindex must have been successfully allocated.
 				}
 				else {
 					// Whatever head value we see here is >= the last value we saw here (relatively),
@@ -1812,10 +1812,10 @@ private:
 						// the size limit, if the second part of the condition was true.)
 						return false;
 					}
-					// We're going to need a new block; check that the block index has room
+					// We're going to need a new block; check that the block rrindex has room
 					if (pr_blockIndexRaw == nullptr || pr_blockIndexSlotsUsed == pr_blockIndexSize) {
-						// Hmm, the circular block index is already full -- we'll need
-						// to allocate a new index. Note pr_blockIndexRaw can only be nullptr if
+						// Hmm, the circular block rrindex is already full -- we'll need
+						// to allocate a new rrindex. Note pr_blockIndexRaw can only be nullptr if
 						// the initial allocation failed in the constructor.
 						
 						if (allocMode == CannotAlloc || !new_block_index(pr_blockIndexSlotsUsed)) {
@@ -1862,7 +1862,7 @@ private:
 					(void)originalBlockIndexSlotsUsed;
 				}
 				
-				// Add block to block index
+				// Add block to block rrindex
 				auto& entry = blockIndex.load(std::memory_order_relaxed)->entries[pr_blockIndexFront];
 				entry.base = currentTailIndex;
 				entry.block = this->tailBlock;
@@ -1923,7 +1923,7 @@ private:
 				if ((details::likely)(details::circular_less_than<index_t>(myDequeueCount - overcommit, tail))) {
 					// Guaranteed to be at least one element to dequeue!
 					
-					// Get the index. Note that since there's guaranteed to be at least one element, this
+					// Get the rrindex. Note that since there's guaranteed to be at least one element, this
 					// will never exceed tail. We need to do an acquire-release fence here since it's possible
 					// that whatever condition got us to this point was for an earlier enqueued element (that
 					// we already see the memory effects for), but that by the time we increment somebody else
@@ -1939,8 +1939,8 @@ private:
 					auto localBlockIndex = blockIndex.load(std::memory_order_acquire);
 					auto localBlockIndexHead = localBlockIndex->front.load(std::memory_order_acquire);
 					
-					// We need to be careful here about subtracting and dividing because of index wrap-around.
-					// When an index wraps, we need to preserve the sign of the offset when dividing it by the
+					// We need to be careful here about subtracting and dividing because of rrindex wrap-around.
+					// When an rrindex wraps, we need to preserve the sign of the offset when dividing it by the
 					// block size (in order to get a correct signed block count offset in all cases):
 					auto headBase = localBlockIndex->entries[localBlockIndexHead].base;
 					auto blockBaseIndex = index & ~static_cast<index_t>(BLOCK_SIZE - 1);
@@ -1986,7 +1986,7 @@ private:
 		bool enqueue_bulk(It itemFirst, size_t count)
 		{
 			// First, we need to make sure we have enough room to enqueue all of the elements;
-			// this means pre-allocating blocks and putting them in the block index (but only if
+			// this means pre-allocating blocks and putting them in the block rrindex (but only if
 			// all the allocations succeeded).
 			index_t startTailIndex = this->tailIndex.load(std::memory_order_relaxed);
 			auto startBlock = this->tailBlock;
@@ -2031,7 +2031,7 @@ private:
 						}
 						
 						// pr_blockIndexFront is updated inside new_block_index, so we need to
-						// update our fallback value too (since we keep the new index even if we
+						// update our fallback value too (since we keep the new rrindex even if we
 						// later fail)
 						originalBlockIndexFront = originalBlockIndexSlotsUsed;
 					}
@@ -2068,7 +2068,7 @@ private:
 				}
 				
 				// Excellent, all allocations succeeded. Reset each block's emptiness before we fill them up, and
-				// publish the new block index front
+				// publish the new block rrindex front
 				auto block = firstAllocatedBlock;
 				while (true) {
 					block->ConcurrentQueue::Block::template reset_empty<explicit_context>();
@@ -2187,7 +2187,7 @@ private:
 						this->dequeueOvercommit.fetch_add(desiredCount - actualCount, std::memory_order_release);
 					}
 					
-					// Get the first index. Note that since there's guaranteed to be at least actualCount elements, this
+					// Get the first rrindex. Note that since there's guaranteed to be at least actualCount elements, this
 					// will never exceed tail.
 					auto firstIndex = this->headIndex.fetch_add(actualCount, std::memory_order_acq_rel);
 					
@@ -2227,7 +2227,7 @@ private:
 							}
 							MOODYCAMEL_CATCH (...) {
 								// It's too late to revert the dequeue, but we can make sure that all
-								// the dequeued objects are properly destroyed and the block index
+								// the dequeued objects are properly destroyed and the block rrindex
 								// (and empty count) are properly updated before we propagate the exception
 								do {
 									block = localBlockIndex->entries[indexIndex].block;
@@ -2385,13 +2385,13 @@ private:
 				++index;
 			}
 			// Even if the queue is empty, there's still one block that's not on the free list
-			// (unless the head index reached the end of it, in which case the tail will be poised
+			// (unless the head rrindex reached the end of it, in which case the tail will be poised
 			// to create a new block).
 			if (this->tailBlock != nullptr && (forceFreeLastBlock || (tail & static_cast<index_t>(BLOCK_SIZE - 1)) != 0)) {
 				this->parent->add_block_to_free_list(this->tailBlock);
 			}
 			
-			// Destroy block index
+			// Destroy block rrindex
 			auto localBlockIndex = blockIndex.load(std::memory_order_relaxed);
 			if (localBlockIndex != nullptr) {
 				for (size_t i = 0; i != localBlockIndex->capacity; ++i) {
@@ -2421,7 +2421,7 @@ private:
 #if MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
 				debug::DebugLock lock(mutex);
 #endif
-				// Find out where we'll be inserting this block in the block index
+				// Find out where we'll be inserting this block in the block rrindex
 				BlockIndexEntry* idxEntry;
 				if (!insert_block_index_entry<allocMode>(idxEntry, currentTailIndex)) {
 					return false;
@@ -2452,7 +2452,7 @@ private:
 					}
 				}
 				
-				// Insert the new block into the index
+				// Insert the new block into the rrindex
 				idxEntry->value.store(newBlock, std::memory_order_relaxed);
 				
 				this->tailBlock = newBlock;
@@ -2524,7 +2524,7 @@ private:
 #if MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
 								debug::DebugLock lock(mutex);
 #endif
-								// Add the block back into the global free pool (and remove from block index)
+								// Add the block back into the global free pool (and remove from block rrindex)
 								entry->value.store(nullptr, std::memory_order_relaxed);
 							}
 							this->parent->add_block_to_free_list(block);		// releases the above store
@@ -2545,12 +2545,12 @@ private:
 		bool enqueue_bulk(It itemFirst, size_t count)
 		{
 			// First, we need to make sure we have enough room to enqueue all of the elements;
-			// this means pre-allocating blocks and putting them in the block index (but only if
+			// this means pre-allocating blocks and putting them in the block rrindex (but only if
 			// all the allocations succeeded).
 			
 			// Note that the tailBlock we start off with may not be owned by us any more;
 			// this happens if it was filled up exactly to the top (setting tailIndex to
-			// the first index of the next block which is not yet allocated), then dequeued
+			// the first rrindex of the next block which is not yet allocated), then dequeued
 			// completely (putting it on the free list) before we enqueue again.
 			
 			index_t startTailIndex = this->tailIndex.load(std::memory_order_relaxed);
@@ -2569,7 +2569,7 @@ private:
 					blockBaseDiff -= static_cast<index_t>(BLOCK_SIZE);
 					currentTailIndex += static_cast<index_t>(BLOCK_SIZE);
 					
-					// Find out where we'll be inserting this block in the block index
+					// Find out where we'll be inserting this block in the block rrindex
 					BlockIndexEntry* idxEntry = nullptr;  // initialization here unnecessary but compiler can't always tell
 					Block* newBlock;
 					bool indexInserted = false;
@@ -2578,7 +2578,7 @@ private:
 					bool full = !details::circular_less_than<index_t>(head, currentTailIndex + BLOCK_SIZE) || (MAX_SUBQUEUE_SIZE != details::const_numeric_max<size_t>::value && (MAX_SUBQUEUE_SIZE == 0 || MAX_SUBQUEUE_SIZE - BLOCK_SIZE < currentTailIndex - head));
 					if (full || !(indexInserted = insert_block_index_entry<allocMode>(idxEntry, currentTailIndex)) || (newBlock = this->parent->ConcurrentQueue::template requisition_block<allocMode>()) == nullptr) {
 						// Index allocation or block allocation failed; revert any other allocations
-						// and index insertions done so far for this operation
+						// and rrindex insertions done so far for this operation
 						if (indexInserted) {
 							rewind_block_index_tail();
 							idxEntry->value.store(nullptr, std::memory_order_relaxed);
@@ -2602,7 +2602,7 @@ private:
 					newBlock->ConcurrentQueue::Block::template reset_empty<implicit_context>();
 					newBlock->next = nullptr;
 					
-					// Insert the new block into the index
+					// Insert the new block into the rrindex
 					idxEntry->value.store(newBlock, std::memory_order_relaxed);
 					
 					// Store the chain of blocks so that we can undo if later allocations fail,
@@ -2711,7 +2711,7 @@ private:
 						this->dequeueOvercommit.fetch_add(desiredCount - actualCount, std::memory_order_release);
 					}
 					
-					// Get the first index. Note that since there's guaranteed to be at least actualCount elements, this
+					// Get the first rrindex. Note that since there's guaranteed to be at least actualCount elements, this
 					// will never exceed tail.
 					auto firstIndex = this->headIndex.fetch_add(actualCount, std::memory_order_acq_rel);
 					
@@ -2794,7 +2794,7 @@ private:
 		}
 		
 	private:
-		// The block size must be > 1, so any number with the low bit set is an invalid block base index
+		// The block size must be > 1, so any number with the low bit set is an invalid block base rrindex
 		static const index_t INVALID_BLOCK_BASE = 1;
 		
 		struct BlockIndexEntry
@@ -2829,7 +2829,7 @@ private:
 				return true;
 			}
 			
-			// No room in the old block index, try to allocate another one!
+			// No room in the old block rrindex, try to allocate another one!
 			if (allocMode == CannotAlloc || !new_block_index()) {
 				return false;
 			}
@@ -2865,7 +2865,7 @@ private:
 			auto tail = localBlockIndex->tail.load(std::memory_order_acquire);
 			auto tailBase = localBlockIndex->index[tail]->key.load(std::memory_order_relaxed);
 			assert(tailBase != INVALID_BLOCK_BASE);
-			// Note: Must use division instead of shift because the index may wrap around, causing a negative
+			// Note: Must use division instead of shift because the rrindex may wrap around, causing a negative
 			// offset, whose negativity we want to preserve
 			auto offset = static_cast<size_t>(static_cast<typename std::make_signed<index_t>::type>(index - tailBase) / BLOCK_SIZE);
 			size_t idx = (tail + offset) & (localBlockIndex->capacity - 1);
@@ -3063,7 +3063,7 @@ private:
 						auto hash = prod->blockIndex.load(std::memory_order_relaxed);
 						if (hash != nullptr) {
 							for (size_t i = 0; i != hash->capacity; ++i) {
-								if (hash->index[i]->key.load(std::memory_order_relaxed) != ImplicitProducer::INVALID_BLOCK_BASE && hash->index[i]->value.load(std::memory_order_relaxed) != nullptr) {
+								if (hash->rrindex[i]->key.load(std::memory_order_relaxed) != ImplicitProducer::INVALID_BLOCK_BASE && hash->rrindex[i]->value.load(std::memory_order_relaxed) != nullptr) {
 									++stats.allocatedBlocks;
 									++stats.ownedBlocksImplicit;
 								}
@@ -3095,10 +3095,10 @@ private:
 								block = block->next;
 							} while (block != tailBlock);
 						}
-						auto index = prod->blockIndex.load(std::memory_order_relaxed);
-						while (index != nullptr) {
-							stats.explicitBlockIndexBytes += sizeof(typename ExplicitProducer::BlockIndexHeader) + index->size * sizeof(typename ExplicitProducer::BlockIndexEntry);
-							index = static_cast<typename ExplicitProducer::BlockIndexHeader*>(index->prev);
+						auto rrindex = prod->blockIndex.load(std::memory_order_relaxed);
+						while (rrindex != nullptr) {
+							stats.explicitBlockIndexBytes += sizeof(typename ExplicitProducer::BlockIndexHeader) + rrindex->size * sizeof(typename ExplicitProducer::BlockIndexEntry);
+							rrindex = static_cast<typename ExplicitProducer::BlockIndexHeader*>(rrindex->prev);
 						}
 					}
 				}
@@ -3333,8 +3333,8 @@ private:
 							auto empty = details::invalid_thread_id;
 #ifdef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
 							auto reusable = details::invalid_thread_id2;
-							if ((probedKey == empty    && mainHash->entries[index].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed)) ||
-								(probedKey == reusable && mainHash->entries[index].key.compare_exchange_strong(reusable, id, std::memory_order_acquire, std::memory_order_acquire))) {
+							if ((probedKey == empty    && mainHash->entries[rrindex].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed)) ||
+								(probedKey == reusable && mainHash->entries[rrindex].key.compare_exchange_strong(reusable, id, std::memory_order_acquire, std::memory_order_acquire))) {
 #else
 							if ((probedKey == empty    && mainHash->entries[index].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed))) {
 #endif
@@ -3421,8 +3421,8 @@ private:
 					auto empty = details::invalid_thread_id;
 #ifdef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
 					auto reusable = details::invalid_thread_id2;
-					if ((probedKey == empty    && mainHash->entries[index].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed)) ||
-						(probedKey == reusable && mainHash->entries[index].key.compare_exchange_strong(reusable, id, std::memory_order_acquire, std::memory_order_acquire))) {
+					if ((probedKey == empty    && mainHash->entries[rrindex].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed)) ||
+						(probedKey == reusable && mainHash->entries[rrindex].key.compare_exchange_strong(reusable, id, std::memory_order_acquire, std::memory_order_acquire))) {
 #else
 					if ((probedKey == empty    && mainHash->entries[index].key.compare_exchange_strong(empty,    id, std::memory_order_relaxed, std::memory_order_relaxed))) {
 #endif
@@ -3460,15 +3460,15 @@ private:
 		// We need to traverse all the hashes just in case other threads aren't on the current one yet and are
 		// trying to add an entry thinking there's a free slot (because they reused a producer)
 		for (; hash != nullptr; hash = hash->prev) {
-			auto index = hashedId;
+			auto rrindex = hashedId;
 			do {
-				index &= hash->capacity - 1;
-				probedKey = hash->entries[index].key.load(std::memory_order_relaxed);
+				rrindex &= hash->capacity - 1;
+				probedKey = hash->entries[rrindex].key.load(std::memory_order_relaxed);
 				if (probedKey == id) {
-					hash->entries[index].key.store(details::invalid_thread_id2, std::memory_order_release);
+					hash->entries[rrindex].key.store(details::invalid_thread_id2, std::memory_order_release);
 					break;
 				}
-				++index;
+				++rrindex;
 			} while (probedKey != details::invalid_thread_id);		// Can happen if the hash has changed but we weren't put back in it yet, or if we weren't added to this hash in the first place
 		}
 		

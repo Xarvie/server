@@ -56,9 +56,9 @@ public:
 		{
 			if(len >= *it)
 			{
+				this->size -= *it;;
 				len -= *it;
 				it = size_list.erase(it);
-				this->size -= *it;
 			}
 			else
 			{
