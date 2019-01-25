@@ -1,5 +1,6 @@
 PROJECT(main)
 cmake_minimum_required (VERSION 3.2)
+set(CMAKE_CXX_STANDARD 17)
 list(APPEND CMAKE_MODULE_PATH
   "${CMAKE_SOURCE_DIR}/cmake/macros")
 include(AutoCollect)
@@ -29,3 +30,5 @@ ADD_EXECUTABLE(main
     ${CODEFILES})
 target_include_directories(main
     PUBLIC ${INCLUDEDIRS})
+
+target_link_libraries(main pthread)
