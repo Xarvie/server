@@ -6,7 +6,7 @@
  */
 
 
-
+#ifdef OS_LINUX
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,7 +18,6 @@
 #include <thread>
 #include <utility>
 
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -133,7 +132,7 @@ int Spider::handleReadEvent(connection* conn)
 	if (ret > 0)
 	{
 		conn->readBuffer.push_back(ret, buff);
-		const int buffSize = *(int*) buff;
+		const int buffSize = *(int*) conn->readBuffer.buff;
 		if (conn->readBuffer.size >= 4 && buffSize == conn->readBuffer.size)
 		{
 			conn->cbRead(ret);
@@ -178,7 +177,7 @@ int Spider::handleWriteEvent(connection* conn)
 
 	return 0;
 }
-
+#if defined(OS_LINUX)
 void Spider::closeConnection(connection* conn)
 {
 
@@ -189,6 +188,7 @@ void Spider::closeConnection(connection* conn)
 	conn->writeBuffer.erase(conn->writeBuffer.size);
 	epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
 }
+#endif
 
 void Spider::workerThreadCB(Spider* thisPtr/*TODO bug?*/, int *fd, int epindex)
 {
@@ -340,7 +340,6 @@ void Spider::listenThread(void * arg)
 						sizeof(nodelay)) < 0)
 					perror("error: nodelay");
 
-
 				int flag;
 				flag = fcntl(sock, F_GETFL);
 				fcntl(sock, F_SETFL, flag | O_NONBLOCK);
@@ -453,13 +452,13 @@ int Spider::loop(int socketFd, const char * ip, const short port)
 	return 0;
 }
 
-int Spider::initThreadCB(Spider* self)
+int Spider::initThreadCB(Spider* self, int port)
 {
-	self->init();
+	self->start(port);
 	return 0;
 }
 
-int Spider::init()
+int Spider::start(int port)
 {
 	int c;
 	for (c = 0; c < CONN_MAXFD; ++c)
@@ -485,7 +484,7 @@ int Spider::init()
 
 	struct sockaddr_in lisAddr;
 	lisAddr.sin_family = AF_INET;
-	lisAddr.sin_port = htons(9876);
+	lisAddr.sin_port = htons(port);
 	lisAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(lisSock, (struct sockaddr *) &lisAddr, sizeof(lisAddr)) == -1)
@@ -532,3 +531,5 @@ int Spider::init()
 
 	return 0;
 }
+
+#endif

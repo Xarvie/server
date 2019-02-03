@@ -1,10 +1,9 @@
 PROJECT(main)
 cmake_minimum_required (VERSION 3.2)
-set(CMAKE_CXX_STANDARD 17)
 list(APPEND CMAKE_MODULE_PATH
   "${CMAKE_SOURCE_DIR}/cmake/macros")
 include(AutoCollect)
-# set(CMAKE_CL_64 1)
+set(CMAKE_CXX_STANDARD 17)
 # cd build
 # cmake .. -G "MinGW Makefiles" -DCMAKE_SH="CMAKE_SH-NOTFOUND"
 PickIncludeDirectories(
