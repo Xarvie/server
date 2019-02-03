@@ -5,7 +5,7 @@
  *      Author: xarvie
  */
 
-
+#include "DefConfig.h"
 #ifdef OS_LINUX
 #include <stdlib.h>
 #include <stdio.h>
@@ -39,8 +39,6 @@ int connection::cbRead(int readNum)
 }
 int connection::cbAlloc()
 {
-	this->buff = (char*) malloc(connection::suggested_capacity);
-	this->capacity = connection::suggested_capacity;
 	return 0;
 }
 
@@ -58,11 +56,52 @@ Spider::Spider()
 	for(int i = 0; i < EPOLL_NUM; i++)
 		this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
 
+	init_thread = std::thread(initThreadCB, this, 9876);
+
 
 }
 
 Spider::~Spider()
 {
+    init_thread.join();
+	sockInfo taskInfo;
+	taskInfo.task = Spider::REQ_SHUTDOWN;
+
+	this->listenTaskQueue.enqueue(taskInfo);
+
+	for(int i = 0; i < EPOLL_NUM; i++)
+	{
+		this->acceptTaskQueue[i].enqueue(taskInfo);
+	}
+
+	int i = 0,c = 0;
+
+	for (i = 0; i < EPOLL_NUM; ++i)
+	{
+		if(worker[i].joinable())
+			worker[i].join();
+	}
+	if(listen_thread.joinable())
+		listen_thread.join();
+
+	struct epoll_event evReg;
+
+	for (c = 0; c < CONN_MAXFD; ++c)
+	{
+		connection* conn = m_conn_table + c;
+		if (conn->type)
+		{
+			epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
+			close(conn->sock);
+		}
+	}
+
+	for (int epi = 0; epi < EPOLL_NUM; ++epi)
+	{
+		close(epfd[epi]);
+	}
+	close(lisSock);
+
 }
 
 class connection;
@@ -106,7 +145,6 @@ int Spider::sendData(connection* conn, char *data, int len)
 
 			int left = len - ret;
 			conn->writeBuffer.push_back(left, data + ret);
-			conn->woff = left;
 		}
 		else
 		{
@@ -122,10 +160,6 @@ int Spider::sendData(connection* conn, char *data, int len)
 
 int Spider::handleReadEvent(connection* conn)
 {
-	if (conn->roff == BUFFER_SIZE)
-	{
-		return -1;
-	}
 	char buff[BUFFER_SIZE + 1];
 	int ret = read(conn->sock, buff, BUFFER_SIZE);
 
@@ -201,21 +235,34 @@ void Spider::workerThread(int *epollfd, int epindex)
 	struct epoll_event event;
 	struct epoll_event evReg;
 
-	while (!this->shut_server)
+	while (true)
 	{
 		int numEvents = epoll_wait(epfd, &event, 1, 1000);//TODO wait 1
 		sockInfo taskInfo ;
-		bool ret = this->acceptTaskQueue[epindex].try_dequeue(taskInfo);
-		if(ret)
+		int shutdown = 0;
+		while(true)
 		{
-			if(taskInfo.task == 3)
+			bool ret = this->acceptTaskQueue[epindex].try_dequeue(taskInfo);
+			if(ret == false)
+				break;
+
+			if(taskInfo.task == REQ_DISCONNECT)
 			{
 				connection* conn = &this->m_conn_table[taskInfo.fd];
 				if(conn->rrindex == taskInfo.rrindex)
 					closeConnection(conn);
 			}
-		}
+			if(taskInfo.task == REQ_SHUTDOWN)
+			{
+				shutdown = 1;
+				break;
+			}
 
+		}
+		if(shutdown)
+		{
+			break;
+		}
 
 		if (numEvents == -1)
 		{
@@ -284,22 +331,26 @@ void Spider::listenThread(void * arg)
 
 	unsigned short rrIndex = 0; /* round robin rrindex */
 
-	while (!this->shut_server)
+	while (true)
 	{
-		//std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		int numEvent = epoll_wait(lisEpfd, &event, 1, 1000);
 
 		//TODO con
 
 		std::vector<sockInfo> sockInfoVec;
-		do
+		int shutdown = 0;
+		while(true)
 		{
 			sockInfo deque;
 			bool success = this->listenTaskQueue.try_dequeue(deque);
 			if(!success)
 				break;
-			if(deque.ret == -1)
-				break;
+
+			if(deque.task == REQ_SHUTDOWN)
+			{
+				shutdown = 1;
+			}
+			if(deque.task == REQ_CONNECT)
 			{
 				int sock = deque.fd;
 				if (sock > 0)
@@ -325,7 +376,11 @@ void Spider::listenThread(void * arg)
 					eventQueue.enqueue(deque);
 				}
 			}
-		}while(true);
+		}
+		if(shutdown)
+		{
+			break;
+		}
 
 		if (numEvent > 0)
 		{
@@ -410,7 +465,7 @@ int Spider::loop(int socketFd, const char * ip, const short port)
 	struct epoll_event event;
 	struct epoll_event evReg;
 
-	while (!shut_server)
+	while (true)
 	{
 		int numEvents = epoll_wait(epfd, &event, 1, 1000);
 		idle();
@@ -454,11 +509,11 @@ int Spider::loop(int socketFd, const char * ip, const short port)
 
 int Spider::initThreadCB(Spider* self, int port)
 {
-	self->start(port);
+	self->init(port);
 	return 0;
 }
 
-int Spider::start(int port)
+int Spider::init(int port)
 {
 	int c;
 	for (c = 0; c < CONN_MAXFD; ++c)
@@ -496,7 +551,6 @@ int Spider::start(int port)
 	::listen(lisSock, 4096);
 
 
-	listen_thread = std::thread(Spider::listenThreadCB, this, nullptr);
 
 	int i;
 
@@ -505,29 +559,7 @@ int Spider::start(int port)
 		worker.emplace_back(Spider::workerThreadCB, this, epfd, i);
 	}
 
-	for (i = 0; i < EPOLL_NUM; ++i)
-	{
-		worker[i].join();
-	}
-	listen_thread.join();
-
-	struct epoll_event evReg;
-
-	for (c = 0; c < CONN_MAXFD; ++c)
-	{
-		connection* conn = m_conn_table + c;
-		if (conn->type)
-		{
-			epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
-			close(conn->sock);
-		}
-	}
-
-	for (epi = 0; epi < EPOLL_NUM; ++epi)
-	{
-		close(epfd[epi]);
-	}
-	close(lisSock);
+	listen_thread = std::thread(Spider::listenThreadCB, this, nullptr);
 
 	return 0;
 }

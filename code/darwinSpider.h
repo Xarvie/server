@@ -132,7 +132,8 @@ public:
     };
     enum{
         REQ_DISCONNECT,
-        REQ_SHUTDOWN
+        REQ_SHUTDOWN,
+        REQ_CONNECT
     };
     int _shutdown = 0;
 };

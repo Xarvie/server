@@ -6,7 +6,7 @@
  */
 
 #ifndef SERVER_SPIDER_H_
-#define SERVER_ANT_H_
+#define SERVER_SPIDER_H_
 #include "Buffer.h"
 #include <vector>
 #include <iostream>
@@ -75,14 +75,25 @@ public:
 	int connect(const char * ip, const short port);
 	int idle();
 	int loop(int socketFd, const char * ip, const short port);
-	int init();
+	int init(int port);
 	static int initThreadCB(Spider* self, int port);
 
-
+enum
+{
+	BUFFER_SIZE = 4096
+};
+	enum {
+		ACCEPT_EVENT,
+		RW_EVENT
+	};
+	enum{
+		REQ_DISCONNECT,
+		REQ_SHUTDOWN,
+		REQ_CONNECT
+	};
 #define CONN_MAXFD 65536
 connection m_conn_table[CONN_MAXFD];
 
-sig_atomic_t shut_server = 0;
 
 
 #define EPOLL_NUM 8
@@ -92,7 +103,7 @@ int lisSock;
 std::vector<std::thread> worker;
 std::list<std::thread> connectThreads;
 std::thread listen_thread;
-
+std::thread init_thread;
 moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
 moodycamel::ConcurrentQueue<sockInfo> eventQueue;
 std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
