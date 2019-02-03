@@ -22,32 +22,24 @@ struct sockInfo
     int fd;
     int ret;
     int task;/*1:listen 2:connect 3:disconnect*/
-
     int event;/*1 listen 2:connect*/
-
 };
 
 class connection
 {
 public:
+	enum
+	{
+		BUFFER_SIZE = 4096
+	};
 	int sock;
 	unsigned short rrindex;
 	int type; /*0:null 1:accept 2:connect*/
-#define BUFFER_SIZE 4096
-	int roff;
-	char rbuf[BUFFER_SIZE];
-	int woff;
-	char wbuf[BUFFER_SIZE];
-	char* buff;
-	int capacity;
-    Spider * spider;
-	bool writeEagain = false;
-	int wirte_msg_size = 0;
 
+    Spider * spider;
 	MessageBuffer writeBuffer;
 	MessageBuffer readBuffer;
 	const int suggested_capacity = BUFFER_SIZE;
-
 	virtual int cbRead(int readNum);
 	virtual int cbAlloc();
 	int disconnect();
@@ -84,7 +76,7 @@ public:
 	int idle();
 	int loop(int socketFd, const char * ip, const short port);
 	int init();
-	static int initThreadCB(Spider* self);
+	static int initThreadCB(Spider* self, int port);
 
 
 #define CONN_MAXFD 65536
