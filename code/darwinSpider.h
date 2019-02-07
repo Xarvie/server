@@ -21,11 +21,13 @@ struct sockInfo
     int port;
     std::string ip;
     int fd;
-    int ret;
-    int task;/*1:listen 2:connect 3:disconnect*/
-    int event;/*1 listen 2:connect*/
+    char task;/*1:listen 2:connect 3:disconnect*/
 };
-
+struct Msg
+{
+	int fd;
+	MessageBuffer buffer;
+};
 class connection
 {
 public:
@@ -60,7 +62,7 @@ public:
 
 
 public:
-	Spider();
+	Spider(int port);
 	virtual ~Spider();
 
     Spider(Spider &&a)
@@ -74,7 +76,7 @@ public:
         return *this;
     }
 
-	int sendData(connection* conn, char *data, int len);
+	int send(int fd, char *data, int len);
 	int handleReadEvent(connection* conn);
 	int handleWriteEvent(connection* conn);
 	void closeConnection(connection* conn);
@@ -86,16 +88,11 @@ public:
 	int connect(const char * ip, const short port);
 	int idle();
 	int loop(int socketFd, const char * ip, const short port);
-	int start(int port);
+	int start1(int port);
 	static int initThreadCB(Spider* self, int port);
+	bool get(Msg& msg);
 
-
-#define CONN_MAXFD 65536
-connection m_conn_table[CONN_MAXFD];
-
-sig_atomic_t shut_server = 0;
-
-
+	void disconnect(int fd);
 #define EPOLL_NUM 8
 int epfd[EPOLL_NUM];
 int lisSock;
@@ -104,10 +101,14 @@ std::vector<std::thread> worker;
 std::list<std::thread> connectThreads;
 std::thread listen_thread;
 
+
 moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
 moodycamel::ConcurrentQueue<sockInfo> eventQueue;
 std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+moodycamel::ConcurrentQueue<Msg> msgQueue;
 
+#define CONN_MAXFD 65535
+    std::vector<connection> m_conn_table;
 
 
 public:

@@ -21,8 +21,8 @@ struct sockInfo
     std::string ip;
     int fd;
     int ret;
-    int task;/*1:listen 2:connect 3:disconnect*/
-    int event;/*1 listen 2:connect*/
+    char task;/*1:listen 2:connect 3:disconnect*/
+    char event;/*1 listen 2:connect*/
 };
 
 class connection

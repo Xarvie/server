@@ -28,7 +28,10 @@
 
 int connection::cbRead(int readNum)
 {
-    spider->sendData(this, this->readBuffer.buff, this->readBuffer.size);
+    Msg msg;
+    msg.fd = this->sock;
+    msg.buffer = this->readBuffer;
+    this->spider->msgQueue.enqueue(msg);
     return 0;
 }
 int connection::cbAlloc()
@@ -46,8 +49,9 @@ int connection::disconnect()
     return 0;
 }
 
-int Spider::sendData(connection* conn, char *data, int len)
+int Spider::send(int fd, char *data, int len)
 {
+    connection* conn = &this->m_conn_table[fd];
     if (conn->writeBuffer.size > 0)
     {
         conn->writeBuffer.push_back(len, data);
@@ -76,11 +80,12 @@ int Spider::sendData(connection* conn, char *data, int len)
     return 0;
 }
 
-Spider::Spider()
+Spider::Spider(int port)
 {
+    this->m_conn_table.resize(CONN_MAXFD);
     for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
         this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
-    listen_thread = std::thread(initThreadCB, this, 9876);
+    listen_thread = std::thread(initThreadCB, this, port);
 }
 
 Spider::~Spider()
@@ -100,7 +105,7 @@ Spider::~Spider()
 
 int Spider::initThreadCB(Spider* self, int port)
 {
-    self->start(port);
+    self->start1(port);
     return 0;
 }
 
@@ -184,7 +189,7 @@ void Spider::event_loop()
             if(taskInfo.task == REQ_DISCONNECT)
             {
                 connection* conn = &this->m_conn_table[taskInfo.fd];
-                if(conn->rrindex == taskInfo.rrindex)
+                if(conn->rrindex == taskInfo.rrindex && conn->type != 0)
                     closeConnection(conn);
             }
             if(taskInfo.task == REQ_SHUTDOWN)
@@ -345,7 +350,17 @@ int Spider::event_on_accept(struct event_data *self, struct kevent *event) {
     return 1;
 }
 
-int Spider::start(int port)
+bool Spider::get(Msg& msg)
+{
+    return this->msgQueue.try_dequeue(msg);
+}
+
+void Spider::disconnect(int fd)
+{
+    m_conn_table[fd].disconnect();
+}
+
+int Spider::start1(int port)
 {
 
     int c;
@@ -365,6 +380,32 @@ int Spider::start(int port)
     this->event_change(server_fd, EVFILT_READ, EV_ADD | EV_ENABLE, &server);
     this->event_loop();
 
+    return 0;
+}
+
+int Spider::connect(const char * ip, short port)
+{
+    int socketFd = socket(AF_INET, SOCK_STREAM, 0);
+
+    sockInfo connectSockInfo;
+    connectSockInfo.ip = ip;
+    connectSockInfo.port = port;
+    connectSockInfo.fd = socketFd;
+    struct sockaddr_in svraddr;
+    svraddr.sin_family = AF_INET;
+    if (strlen(ip))
+        svraddr.sin_addr.s_addr = inet_addr(ip);
+    else
+        svraddr.sin_addr.s_addr = INADDR_ANY;
+
+    svraddr.sin_port = htons(port);
+    int ret = ::connect(socketFd, (struct sockaddr *) &svraddr, sizeof(svraddr));
+    if (ret != 0)
+    {
+        close(socketFd);
+        return false;
+    }
+    listenTaskQueue.enqueue(connectSockInfo);
     return 0;
 }
 

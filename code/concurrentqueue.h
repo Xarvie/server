@@ -1235,7 +1235,7 @@ public:
 	// Returns an estimate of the total number of elements currently in the queue. This
 	// estimate is only accurate if the queue has completely stabilized before it is called
 	// (i.e. all enqueue and dequeue operations have completed and their memory effects are
-	// visible on the calling thread, and no further operations start while this method is
+	// visible on the calling thread, and no further operations start1 while this method is
 	// being called).
 	// Thread-safe.
 	size_t size_approx() const
@@ -1317,7 +1317,7 @@ private:
 		if ((details::unlikely)(token.desiredProducer == nullptr)) {
 			// Aha, first time we're dequeueing anything.
 			// Figure out our local position
-			// Note: offset is from start, not end, but we're traversing from end -- subtract from count first
+			// Note: offset is from start1, not end, but we're traversing from end -- subtract from count first
 			std::uint32_t offset = prodCount - 1 - (token.initialOffset % prodCount);
 			token.desiredProducer = tail;
 			for (std::uint32_t i = 0; i != offset; ++i) {
@@ -1785,7 +1785,7 @@ private:
 			index_t currentTailIndex = this->tailIndex.load(std::memory_order_relaxed);
 			index_t newTailIndex = 1 + currentTailIndex;
 			if ((currentTailIndex & static_cast<index_t>(BLOCK_SIZE - 1)) == 0) {
-				// We reached the end of a block, start a new one
+				// We reached the end of a block, start1 a new one
 				auto startBlock = this->tailBlock;
 				auto originalBlockIndexSlotsUsed = pr_blockIndexSlotsUsed;
 				if (this->tailBlock != nullptr && this->tailBlock->next->ConcurrentQueue::Block::template is_empty<explicit_context>()) {
@@ -2412,7 +2412,7 @@ private:
 			index_t currentTailIndex = this->tailIndex.load(std::memory_order_relaxed);
 			index_t newTailIndex = 1 + currentTailIndex;
 			if ((currentTailIndex & static_cast<index_t>(BLOCK_SIZE - 1)) == 0) {
-				// We reached the end of a block, start a new one
+				// We reached the end of a block, start1 a new one
 				auto head = this->headIndex.load(std::memory_order_relaxed);
 				assert(!details::circular_less_than<index_t>(currentTailIndex, head));
 				if (!details::circular_less_than<index_t>(head, currentTailIndex + BLOCK_SIZE) || (MAX_SUBQUEUE_SIZE != details::const_numeric_max<size_t>::value && (MAX_SUBQUEUE_SIZE == 0 || MAX_SUBQUEUE_SIZE - BLOCK_SIZE < currentTailIndex - head))) {
@@ -2548,7 +2548,7 @@ private:
 			// this means pre-allocating blocks and putting them in the block rrindex (but only if
 			// all the allocations succeeded).
 			
-			// Note that the tailBlock we start off with may not be owned by us any more;
+			// Note that the tailBlock we start1 off with may not be owned by us any more;
 			// this happens if it was filled up exactly to the top (setting tailIndex to
 			// the first rrindex of the next block which is not yet allocated), then dequeued
 			// completely (putting it on the free list) before we enqueue again.
