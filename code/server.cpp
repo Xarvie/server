@@ -15,16 +15,33 @@
 #define SPIDER_MAX_NUM 1
 int main(int argc, char * const argv[])
 {
-	Spider* x;
+
 	//x = new Spider();
 	//delete  x;
-	{
+
 
 		Spider  xx(9876);
-		Msg msg;
 
+    Msg msg;
+		while(true)
+			 {
+
+				     while(true)
+				     {
+					         bool ret = xx.msgQueue.try_dequeue(msg);
+
+					         if(ret)
+						             break;
+					         else
+					             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+				     }
+
+				     xx.send(msg.fd, msg.buffer.buff, msg.buffer.size);
+				     //xx.disconnect(msg.fd);
+				 }
 		/**
-		 * xx.listen(9876, 4);
+		 * //xx.listen(9876, 4);
 		 * //int fd = xx.connect("192.168.18.46", 8080);
 		 * //xx.send(fd, "halo");
 		 * while(true)
@@ -45,8 +62,7 @@ int main(int argc, char * const argv[])
 		 * }
 		 *
 		 */
-	}
-	std::this_thread::sleep_for(std::chrono::seconds(30));
+	std::this_thread::sleep_for(std::chrono::seconds(300));
 
 	return 0;
 }

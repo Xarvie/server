@@ -16,6 +16,7 @@
 class Spider;
 struct sockInfo
 {
+	//TODO move construct
 	unsigned short rrindex;
     int port;
     std::string ip;
@@ -25,8 +26,39 @@ struct sockInfo
     char event;/*1 listen 2:connect*/
 };
 
+class Msg
+{
+public:
+	Msg()
+	{
+		fd = 0;
+	}
+	Msg(const Msg& r)
+	{
+		this->buffer = r.buffer;
+		this->fd = r.fd;
+	}
+
+	Msg(Msg &&a)
+	{
+		//std::cout << "a" << std::endl;
+	}
+
+	Msg& operator = (Msg &&rhs) noexcept
+	{
+		//std::cout << "b" << std::endl;
+		this->buffer = rhs.buffer;
+		this->fd = rhs.fd;
+		return *this;
+	}
+
+    int fd;
+    MessageBuffer buffer;
+};
+
 class connection
 {
+	//TODO move construct
 public:
 	enum
 	{
@@ -49,7 +81,7 @@ public:
 class Spider
 {
 public:
-	Spider();
+	Spider(int port);
 	virtual ~Spider();
 
     Spider(Spider &&a)
@@ -63,7 +95,7 @@ public:
         return *this;
     }
 
-	int sendData(connection* conn, char *data, int len);
+	int send(int fd, char *data, int len);
 	int handleReadEvent(connection* conn);
 	int handleWriteEvent(connection* conn);
 	void closeConnection(connection* conn);
@@ -71,13 +103,14 @@ public:
 	static void listenThreadCB(Spider* thisPtr, void *arg);
 	void workerThread(int *epfd, int epindex);
 	void listenThread(void *arg);
-	int listen(const int port);
-	int connect(const char * ip, const short port);
+	int listen(int port);
+	int connect(const char * ip, short port);
 	int idle();
 	int loop(int socketFd, const char * ip, const short port);
 	int init(int port);
 	static int initThreadCB(Spider* self, int port);
-
+    void disconnect(int fd);
+    bool get(Msg& msg);
 enum
 {
 	BUFFER_SIZE = 4096
@@ -92,21 +125,20 @@ enum
 		REQ_CONNECT
 	};
 #define CONN_MAXFD 65536
-connection m_conn_table[CONN_MAXFD];
-
-
-
+std::vector<connection> m_conn_table;
 #define EPOLL_NUM 8
-int epfd[EPOLL_NUM];
-int lisSock;
 
-std::vector<std::thread> worker;
-std::list<std::thread> connectThreads;
-std::thread listen_thread;
-std::thread init_thread;
-moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
-moodycamel::ConcurrentQueue<sockInfo> eventQueue;
-std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+
+    int epfd[EPOLL_NUM];
+    int lisSock;
+    std::vector<std::thread> worker;
+    std::list<std::thread> connectThreads;
+    std::thread listen_thread;
+    std::thread init_thread;
+    moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
+    moodycamel::ConcurrentQueue<sockInfo> eventQueue;
+    std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+    moodycamel::ConcurrentQueue<Msg> msgQueue;
 };
 
 #endif /* SERVER_SPIDER_H_ */

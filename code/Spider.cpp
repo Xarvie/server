@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <time.h>
 #include <netinet/tcp.h>
+#include <sys/epoll.h>
 
 #include "concurrentqueue.h"
 #include "Spider.h"
@@ -34,7 +35,7 @@
 
 int connection::cbRead(int readNum)
 {
-	spider->sendData(this, this->readBuffer.buff, this->readBuffer.size);
+
 	return 0;
 }
 int connection::cbAlloc()
@@ -51,14 +52,20 @@ int connection::disconnect()
 	this->spider->acceptTaskQueue[this->rrindex % EPOLL_NUM].enqueue(connectSockInfo);
 }
 
-Spider::Spider()
+Spider::Spider(int port)
 {
+	this->m_conn_table.resize(CONN_MAXFD);
+	int c;
+	for (c = 0; c < CONN_MAXFD; ++c)
+	{
+		m_conn_table[c].sock = c;
+		m_conn_table[c].spider = this;
+		m_conn_table[c].cbAlloc();
+	}
+
 	for(int i = 0; i < EPOLL_NUM; i++)
 		this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
-
-	init_thread = std::thread(initThreadCB, this, 9876);
-
-
+	init_thread = std::thread(initThreadCB, this, port);
 }
 
 Spider::~Spider()
@@ -88,7 +95,7 @@ Spider::~Spider()
 
 	for (c = 0; c < CONN_MAXFD; ++c)
 	{
-		connection* conn = m_conn_table + c;
+		connection* conn = &m_conn_table[c];
 		if (conn->type)
 		{
 			epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
@@ -101,11 +108,10 @@ Spider::~Spider()
 		close(epfd[epi]);
 	}
 	close(lisSock);
-
 }
 
 class connection;
-extern int sendData(connection* conn, char *data, int len);
+extern int send(int fd, char *data, int len);
 
 class connector
 {
@@ -128,8 +134,9 @@ void connector::init_threads()
 }
 
 
-int Spider::sendData(connection* conn, char *data, int len)
+int Spider::send(int fd, char *data, int len)
 {
+	connection* conn = &this->m_conn_table[fd];
 	if (conn->writeBuffer.size > 0)
 	{
 		conn->writeBuffer.push_back(len, data);
@@ -167,9 +174,16 @@ int Spider::handleReadEvent(connection* conn)
 	{
 		conn->readBuffer.push_back(ret, buff);
 		const int buffSize = *(int*) conn->readBuffer.buff;
-		if (conn->readBuffer.size >= 4 && buffSize == conn->readBuffer.size)
+		if (conn->readBuffer.size >= 4 && buffSize <= conn->readBuffer.size)
 		{
-			conn->cbRead(ret);
+			Msg msg;
+			msg.fd = conn->sock;
+			msg.buffer = conn->readBuffer;
+			while(true)
+			{
+				if(this->msgQueue.enqueue(msg))
+					break;
+			}
 			conn->readBuffer.erase(conn->readBuffer.size);
 		}
 
@@ -266,7 +280,7 @@ void Spider::workerThread(int *epollfd, int epindex)
 
 		if (numEvents == -1)
 		{
-			printf("wait\n %d", errno);
+			//printf("wait\n %d", errno);
 		}
 
 		if (numEvents > 0)
@@ -415,44 +429,6 @@ void Spider::listenThread(void * arg)
 	close(lisEpfd);
 }
 
-//int connect
-int Spider::connect(const char * ip, const short port)
-{
-	connectThreads.emplace_back(
-			std::thread (
-			[&] {
-				int socketFd = socket(AF_INET, SOCK_STREAM, 0);
-
-				sockInfo connectSockInfo;
-				connectSockInfo.ip = ip;
-				connectSockInfo.port = port;
-				connectSockInfo.fd = socketFd;
-				connectSockInfo.ret = 0;
-				struct sockaddr_in svraddr;
-				svraddr.sin_family = AF_INET;
-				if (strlen(ip))
-					svraddr.sin_addr.s_addr = inet_addr(ip);
-				else
-					svraddr.sin_addr.s_addr = INADDR_ANY;
-
-				svraddr.sin_port = htons(port);
-				int ret = ::connect(socketFd, (struct sockaddr *) &svraddr, sizeof(svraddr));
-				if (ret != 0 && errno != EINPROGRESS)
-				{
-					close(socketFd);
-					connectSockInfo.ret = -1;
-					listenTaskQueue.enqueue(connectSockInfo);
-
-					return false;
-				}
-				listenTaskQueue.enqueue(connectSockInfo);
-
-				return true;
-			})
-
-			);
-}
-
 int Spider::idle()
 {
 	return 0;
@@ -515,13 +491,6 @@ int Spider::initThreadCB(Spider* self, int port)
 
 int Spider::init(int port)
 {
-	int c;
-	for (c = 0; c < CONN_MAXFD; ++c)
-	{
-		m_conn_table[c].sock = c;
-		m_conn_table[c].cbAlloc();
-	}
-
 	int epi;
 	for (epi = 0; epi < EPOLL_NUM; ++epi)
 	{
@@ -562,6 +531,42 @@ int Spider::init(int port)
 	listen_thread = std::thread(Spider::listenThreadCB, this, nullptr);
 
 	return 0;
+}
+
+bool Spider::get(Msg& msg)
+{
+    return this->msgQueue.try_dequeue(msg);
+}
+
+void Spider::disconnect(int fd)
+{
+    m_conn_table[fd].disconnect();
+}
+
+int Spider::connect(const char * ip, short port)
+{
+    int socketFd = socket(AF_INET, SOCK_STREAM, 0);
+
+    sockInfo connectSockInfo;
+    connectSockInfo.ip = ip;
+    connectSockInfo.port = port;
+    connectSockInfo.fd = socketFd;
+    struct sockaddr_in svraddr;
+    svraddr.sin_family = AF_INET;
+    if (strlen(ip))
+        svraddr.sin_addr.s_addr = inet_addr(ip);
+    else
+        svraddr.sin_addr.s_addr = INADDR_ANY;
+
+    svraddr.sin_port = htons(port);
+    int ret = ::connect(socketFd, (struct sockaddr *) &svraddr, sizeof(svraddr));
+    if (ret != 0)
+    {
+        close(socketFd);
+        return false;
+    }
+    listenTaskQueue.enqueue(connectSockInfo);
+    return 0;
 }
 
 #endif

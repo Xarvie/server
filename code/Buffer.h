@@ -12,9 +12,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#if defined(OS_LINUX)
-#include <sys/epoll.h>
-#endif
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -26,6 +23,8 @@
 #include <netinet/tcp.h>
 #include <list>
 #include <string>
+#include <iostream>
+
 #include "concurrentqueue.h"
 
 class MessageBuffer
@@ -34,12 +33,39 @@ public:
 	MessageBuffer()
 	{
 		buff = (char*)malloc(1024);
+		std::cout << "alloc malloc" << std::endl;
 		capacity = 1024;
 	}
 	~MessageBuffer()
 	{
-		free(buff);
+		capacity = 0;
+		if(buff != NULL)
+			free(buff);
+		buff = NULL;
 	}
+	MessageBuffer(const MessageBuffer& r)
+	{
+		this->size_list = r.size_list;
+		this->size = r.size;
+		this->buff = (char*)malloc((size_t)r.capacity);
+		std::cout << "copy construct malloc" << std::endl;
+		memcpy(this->buff, r.buff, r.size);
+		this->capacity = r.capacity;
+	}
+
+	MessageBuffer& operator=(const MessageBuffer& r)
+	{
+		this->size_list = r.size_list;
+		this->size = r.size;
+		this->buff = (char*)malloc((size_t)r.capacity);
+		std::cout << "op= malloc" << std::endl;
+		memcpy(this->buff, r.buff, r.size);
+		this->capacity = r.capacity;
+		return *this;
+	}
+
+
+
 	void push_back(int len, const char* buff)
 	{
 		int newSize = size + len;
