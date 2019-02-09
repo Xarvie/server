@@ -26,7 +26,7 @@
 #include <iostream>
 
 #include "concurrentqueue.h"
-
+#include "block.h"
 class MessageBuffer
 {
 public:
