@@ -138,7 +138,8 @@ std::vector<connection> m_conn_table;
     moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
-    moodycamel::ConcurrentQueue<Msg> msgQueue;
+    moodycamel::BlockingConcurrentQueue<Msg> msgQueue;
+
 };
 
 #endif /* SERVER_SPIDER_H_ */

@@ -20,17 +20,7 @@ int main(int argc, char *const argv[])
     Msg msg;
     while (true)
     {
-        while (true)
-        {
-            bool ret = xx.msgQueue.try_dequeue(msg);
-
-            if (ret)
-                break;
-            else
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        }
-
+        xx.msgQueue.wait_dequeue(msg);
         xx.send(msg.fd, msg.buffer.buff, msg.buffer.size);
         msg.buffer.destroy();
         //xx.disconnect(msg.fd);
