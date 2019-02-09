@@ -60,6 +60,8 @@ Spider::Spider(int port)
 	{
 		m_conn_table[c].sock = c;
 		m_conn_table[c].spider = this;
+		m_conn_table[c].readBuffer.init();
+		m_conn_table[c].writeBuffer.init();
 		m_conn_table[c].cbAlloc();
 	}
 
@@ -101,6 +103,8 @@ Spider::~Spider()
 			epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
 			close(conn->sock);
 		}
+		m_conn_table[c].readBuffer.destroy();
+		m_conn_table[c].writeBuffer.destroy();
 	}
 
 	for (int epi = 0; epi < EPOLL_NUM; ++epi)
@@ -177,8 +181,12 @@ int Spider::handleReadEvent(connection* conn)
 		if (conn->readBuffer.size >= 4 && buffSize <= conn->readBuffer.size)
 		{
 			Msg msg;
-			msg.fd = conn->sock;
 			msg.buffer = conn->readBuffer;
+			msg.buffer.buff = (char*)malloc((size_t)conn->readBuffer.capacity);
+			msg.fd = conn->sock;
+			memcpy(msg.buffer.buff,conn->readBuffer.buff, conn->readBuffer.size);
+
+
 			while(true)
 			{
 				if(this->msgQueue.enqueue(msg))
