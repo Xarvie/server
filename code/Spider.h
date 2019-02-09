@@ -19,7 +19,7 @@ struct sockInfo
 	//TODO move construct
 	unsigned short rrindex;
     int port;
-    std::string ip;
+    char ip[128];
     int fd;
     int ret;
     char task;/*1:listen 2:connect 3:disconnect*/

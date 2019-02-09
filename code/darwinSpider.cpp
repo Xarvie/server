@@ -83,8 +83,17 @@ int Spider::send(int fd, char *data, int len)
 Spider::Spider(int port)
 {
     this->m_conn_table.resize(CONN_MAXFD);
+    for (int c = 0; c < CONN_MAXFD; ++c)
+    {
+        m_conn_table[c].sock = c;
+        m_conn_table[c].spider = this;
+        m_conn_table[c].readBuffer.init();
+        m_conn_table[c].writeBuffer.init();
+        m_conn_table[c].cbAlloc();
+    }
     for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
         this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
+
     listen_thread = std::thread(initThreadCB, this, port);
 }
 
@@ -100,7 +109,17 @@ Spider::~Spider()
     {
         this->listen_thread.join();
     }
-
+    for (int c = 0; c < CONN_MAXFD; ++c)
+    {
+        connection* conn = &m_conn_table[c];
+        if (conn->type)
+        {
+            close(conn->sock);
+        }
+        m_conn_table[c].readBuffer.destroy();
+        m_conn_table[c].writeBuffer.destroy();
+    }
+    close(lisSock);
 }
 
 int Spider::initThreadCB(Spider* self, int port)
@@ -125,26 +144,26 @@ void Spider::event_server_listen (int port) {
     this->queue = kqueue();
     if (this->queue < 0) on_error("Could not create kqueue: %s\n", strerror(errno));
 
-    this->server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (this->server_fd < 0) on_error("Could not create server socket: %s\n", strerror(errno))
+    this->lisSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (this->lisSock < 0) on_error("Could not create server socket: %s\n", strerror(errno))
 
     this->server.sin_family = AF_INET;
     this->server.sin_port = htons(port);
     this->server.sin_addr.s_addr = htonl(INADDR_ANY);
 
     int opt_val = 1;
-    setsockopt(this->server_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
+    setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 
-    err = bind(this->server_fd, (struct sockaddr *) &this->server, sizeof(this->server));
+    err = bind(this->lisSock, (struct sockaddr *) &this->server, sizeof(this->server));
     if (err < 0) on_error("Could not bind server socket: %s\n", strerror(errno));
 
-    flags = fcntl(this->server_fd, F_GETFL, 0);
+    flags = fcntl(this->lisSock, F_GETFL, 0);
     if (flags < 0) on_error("Could not get server socket flags: %s\n", strerror(errno))
 
-    err = fcntl(this->server_fd, F_SETFL, flags | O_NONBLOCK);
+    err = fcntl(this->lisSock, F_SETFL, flags | O_NONBLOCK);
     if (err < 0) on_error("Could set server socket to be non blocking: %s\n", strerror(errno));
 
-    err = ::listen(this->server_fd, SOMAXCONN);
+    err = ::listen(this->lisSock, SOMAXCONN);
     if (err < 0) on_error("Could not listen: %s\n", strerror(errno));
 }
 
@@ -291,9 +310,20 @@ int Spider::event_on_read(struct event_data *self, struct kevent *event){
     {
         conn->readBuffer.push_back(ret, buff);
         const int buffSize = *(int*) conn->readBuffer.buff;
-        if (conn->readBuffer.size >= 4 && buffSize == conn->readBuffer.size)
+        if (conn->readBuffer.size >= 4 && buffSize <= conn->readBuffer.size)
         {
-            conn->cbRead(ret);
+            Msg msg;
+            msg.buffer = conn->readBuffer;
+            msg.buffer.buff = (char*)malloc((size_t)conn->readBuffer.capacity);
+            msg.fd = conn->sock;
+            memcpy(msg.buffer.buff,conn->readBuffer.buff, conn->readBuffer.size);
+
+
+            while(true)
+            {
+                if(this->msgQueue.enqueue(msg))
+                    break;
+            }
             conn->readBuffer.erase(conn->readBuffer.size);
         }
     }
@@ -323,7 +353,7 @@ int Spider::event_on_accept(struct event_data *self, struct kevent *event) {
     struct sockaddr client;
     socklen_t client_len = sizeof(client);
 
-    int client_fd = accept(server_fd, &client, &client_len);
+    int client_fd = accept(this->lisSock, &client, &client_len);
     int flags;
     int err;
 
@@ -362,22 +392,13 @@ void Spider::disconnect(int fd)
 
 int Spider::start1(int port)
 {
-
-    int c;
-    for (c = 0; c < CONN_MAXFD; ++c)
-    {
-        m_conn_table[c].sock = c;
-        m_conn_table[c].cbAlloc();
-
-    }
-
     struct event_data server = {
             .type = ACCEPT_EVENT,
             .this_ptr  = this //TODO
     };
 
     this->event_server_listen(port);
-    this->event_change(server_fd, EVFILT_READ, EV_ADD | EV_ENABLE, &server);
+    this->event_change(this->lisSock, EVFILT_READ, EV_ADD | EV_ENABLE, &server);
     this->event_loop();
 
     return 0;

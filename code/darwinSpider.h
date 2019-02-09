@@ -125,7 +125,7 @@ public:
     int events_alloc = 0;
 
     struct sockaddr_in server;
-    int server_fd, queue;
+    int queue;
     unsigned short rrIndex = 0;
     enum {
         ACCEPT_EVENT,
