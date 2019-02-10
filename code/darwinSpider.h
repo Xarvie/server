@@ -105,7 +105,7 @@ std::thread listen_thread;
 moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
 moodycamel::ConcurrentQueue<sockInfo> eventQueue;
 std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
-moodycamel::ConcurrentQueue<Msg> msgQueue;
+moodycamel::BlockingConcurrentQueue<Msg> msgQueue;
 
 #define CONN_MAXFD 65535
     std::vector<connection> m_conn_table;
