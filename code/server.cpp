@@ -21,7 +21,7 @@ int main(int argc, char *const argv[])
     while (true)
     {
         xx.msgQueue.wait_dequeue(msg);
-        xx.send(msg.fd, msg.buffer.buff, msg.buffer.size);
+        xx._send(msg.fd, msg.buffer.buff, msg.buffer.size);
         msg.buffer.destroy();
         //xx.disconnect(msg.fd);
     }

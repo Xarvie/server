@@ -19,7 +19,7 @@ struct sockInfo
 {
 	unsigned short rrindex;
     int port;
-    std::string ip;
+    char ip[128];
     int fd;
     char task;/*1:listen 2:connect 3:disconnect*/
 };
@@ -76,7 +76,7 @@ public:
         return *this;
     }
 
-	int send(int fd, char *data, int len);
+	int _send(int fd, char *data, int len);
 	int handleReadEvent(connection* conn);
 	int handleWriteEvent(connection* conn);
 	void closeConnection(connection* conn);

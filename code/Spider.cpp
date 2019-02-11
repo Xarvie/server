@@ -35,9 +35,9 @@
 
 int connection::cbRead(int readNum)
 {
-
 	return 0;
 }
+
 int connection::cbAlloc()
 {
 	return 0;
@@ -46,17 +46,17 @@ int connection::cbAlloc()
 int connection::disconnect()
 {
 	sockInfo connectSockInfo;
-	connectSockInfo.task = 3;
+	connectSockInfo.task = Spider::REQ_DISCONNECT;
 	connectSockInfo.rrindex = this->rrindex;
 	connectSockInfo.fd = this->sock;
 	this->spider->acceptTaskQueue[this->rrindex % EPOLL_NUM].enqueue(connectSockInfo);
+    return 0;
 }
 
 Spider::Spider(int port)
 {
 	this->m_conn_table.resize(CONN_MAXFD);
-	int c;
-	for (c = 0; c < CONN_MAXFD; ++c)
+	for (int c = 0; c < CONN_MAXFD; ++c)
 	{
 		m_conn_table[c].sock = c;
 		m_conn_table[c].spider = this;
@@ -171,7 +171,7 @@ int Spider::send(int fd, char *data, int len)
 
 int Spider::handleReadEvent(connection* conn)
 {
-	char buff[BUFFER_SIZE + 1];
+	char buff[BUFFER_SIZE];
 	int ret = read(conn->sock, buff, BUFFER_SIZE);
 
 	if (ret > 0)
@@ -556,7 +556,7 @@ int Spider::connect(const char * ip, short port)
     int socketFd = socket(AF_INET, SOCK_STREAM, 0);
 
     sockInfo connectSockInfo;
-    connectSockInfo.ip = ip;
+    strcpy(connectSockInfo.ip, ip);
     connectSockInfo.port = port;
     connectSockInfo.fd = socketFd;
     struct sockaddr_in svraddr;

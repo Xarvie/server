@@ -28,12 +28,9 @@
 
 int connection::cbRead(int readNum)
 {
-    Msg msg;
-    msg.fd = this->sock;
-    msg.buffer = this->readBuffer;
-    this->spider->msgQueue.enqueue(msg);
     return 0;
 }
+
 int connection::cbAlloc()
 {
     return 0;
@@ -46,37 +43,6 @@ int connection::disconnect()
     connectSockInfo.rrindex = this->rrindex;
     connectSockInfo.fd = this->sock;
     this->spider->acceptTaskQueue[this->rrindex % EPOLL_NUM].enqueue(connectSockInfo);
-    return 0;
-}
-
-int Spider::send(int fd, char *data, int len)
-{
-    connection* conn = &this->m_conn_table[fd];
-    if (conn->writeBuffer.size > 0)
-    {
-        conn->writeBuffer.push_back(len, data);
-        return 0;
-    }
-    else
-    {
-        int ret = write(conn->sock, data, len);
-        if (ret > 0)
-        {
-            if (ret == len)
-                return 0;
-
-            int left = len - ret;
-            conn->writeBuffer.push_back(left, data + ret);
-        }
-        else
-        {
-            if (errno != EINTR && errno != EAGAIN)
-                return -1;
-
-            conn->writeBuffer.push_back(len, data);
-        }
-    }
-
     return 0;
 }
 
@@ -303,7 +269,7 @@ int Spider::event_on_read(struct event_data *self, struct kevent *event){
 
     int sock = event->ident;
     connection* conn = &this->m_conn_table[sock];
-    char buff[BUFFER_SIZE + 1];
+    char buff[BUFFER_SIZE];
     int ret = read(conn->sock, buff, BUFFER_SIZE);
 
     if (ret > 0)
@@ -409,7 +375,7 @@ int Spider::connect(const char * ip, short port)
     int socketFd = socket(AF_INET, SOCK_STREAM, 0);
 
     sockInfo connectSockInfo;
-    connectSockInfo.ip = ip;
+    strcpy(connectSockInfo.ip, ip);
     connectSockInfo.port = port;
     connectSockInfo.fd = socketFd;
     struct sockaddr_in svraddr;
@@ -427,6 +393,38 @@ int Spider::connect(const char * ip, short port)
         return false;
     }
     listenTaskQueue.enqueue(connectSockInfo);
+    return 0;
+}
+
+
+int Spider::_send(int fd, char *data, int len)
+{
+    connection* conn = &this->m_conn_table[fd];
+    if (conn->writeBuffer.size > 0)
+    {
+        conn->writeBuffer.push_back(len, data);
+        return 0;
+    }
+    else
+    {
+        int ret = write(conn->sock, data, len);
+        if (ret > 0)
+        {
+            if (ret == len)
+                return 0;
+
+            int left = len - ret;
+            conn->writeBuffer.push_back(left, data + ret);
+        }
+        else
+        {
+            if (errno != EINTR && errno != EAGAIN)
+                return -1;
+
+            conn->writeBuffer.push_back(len, data);
+        }
+    }
+
     return 0;
 }
 

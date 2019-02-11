@@ -13,7 +13,7 @@
 #include <string>
 #include <list>
 
-class Spider;
+//class Spider;
 struct sockInfo
 {
 	//TODO move construct
@@ -95,7 +95,7 @@ public:
         return *this;
     }
 
-	int send(int fd, char *data, int len);
+	int _send(int fd, char *data, int len);
 	int handleReadEvent(connection* conn);
 	int handleWriteEvent(connection* conn);
 	void closeConnection(connection* conn);
