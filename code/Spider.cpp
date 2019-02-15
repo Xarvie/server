@@ -138,7 +138,7 @@ void connector::init_threads()
 }
 
 
-int Spider::send(int fd, char *data, int len)
+int Spider::_send(int fd, char *data, int len)
 {
 	connection* conn = &this->m_conn_table[fd];
 	if (conn->writeBuffer.size > 0)

@@ -13,7 +13,7 @@
 #include <string>
 #include <list>
 
-//class Spider;
+class Spider;
 struct sockInfo
 {
 	//TODO move construct
