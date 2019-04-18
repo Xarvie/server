@@ -1,4 +1,4 @@
-PROJECT(main)
+PROJECT(server)
 cmake_minimum_required (VERSION 3.2)
 list(APPEND CMAKE_MODULE_PATH
   "${CMAKE_SOURCE_DIR}/cmake/macros")
@@ -26,8 +26,15 @@ IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
 ENDIF()
 set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g")
 ADD_EXECUTABLE(main
-    ${CODEFILES} code/block.h)
+    ${CODEFILES})
 target_include_directories(main
-    PUBLIC ${INCLUDEDIRS})
+        PUBLIC ${INCLUDEDIRS})
 
-target_link_libraries(main pthread)
+IF(CMAKE_SYSTEM_NAME MATCHES "Windows")
+    target_link_libraries(main pthread ws2_32)
+ELSE()
+    target_link_libraries(main pthread)
+ENDIF()
+
+
+

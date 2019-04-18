@@ -1,9 +1,5 @@
-/*
- * Buffer.cpp
- *
- *  Created on: Dec 31, 2018
- *      Author: xarvie
- */
+//
+// Created by ftp on 4/2/2019.
+//
 
 #include "Buffer.h"
-
