@@ -13,17 +13,15 @@
 //std::atomic_int v = 0;
 
 Spider::Spider(int port, int threadsNum) {
-    //sessions.resize(65535);
+    sessions.resize(65535);
     for (int i = 0; i < 65535; i++) {
         //sessions[i] = new(xmalloc(sizeof(Session))) Session;
         sessions[i] = new Session;
         sessions[i]->reset();
+
     }
 }
 
-Spider::Spider(Spider &&a) noexcept {
-    std::cout << "Spider &&a" << std::endl;
-}
 
 Spider &Spider::operator=(Spider &&rhs) noexcept {
     std::cout << "operator=" << std::endl;

@@ -35,7 +35,7 @@ class Spider : public Poller {
 public:
     explicit Spider(int port, int threadsNum = 4);
 
-    Spider(Spider &&a) noexcept;
+    Spider(Poller &&a) noexcept;
 
     Spider &operator=(Spider &&rhs) noexcept;
 
@@ -45,7 +45,7 @@ public:
 
     void stop();
 
-    virtual void onAccept(uint64_t sessionId, const Addr &addr);
+    virtual void onAccept(uint64_t sessionId, const Addr &addr) override;
 
     void connect(const Addr &addr);
 

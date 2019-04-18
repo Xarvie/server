@@ -18,55 +18,36 @@
 #include <sys/event.h>
 #include <sys/time.h>
 #include <errno.h>
-
-
-#include "darwinSpider.h"
+#include <arpa/inet.h>
 #include "Buffer.h"
+#include "Spider.h"
 
 #define BUFFER_SIZE 1024
 #define on_error(...) { fprintf(stderr, __VA_ARGS__); fflush(stderr); exit(1); }
 
-int connection::cbRead(int readNum)
+int Session::cbRead(int readNum)
 {
     return 0;
 }
 
-int connection::cbAlloc()
+int Session::cbAlloc()
 {
     return 0;
 }
 
-int connection::disconnect()
+int Session::disconnect()
 {
     sockInfo connectSockInfo;
-    connectSockInfo.task = Spider::REQ_DISCONNECT;
+    connectSockInfo.task = Poller::REQ_DISCONNECT;
     connectSockInfo.rrindex = this->rrindex;
-    connectSockInfo.fd = this->sock;
-    this->spider->acceptTaskQueue[this->rrindex % EPOLL_NUM].enqueue(connectSockInfo);
+    connectSockInfo.fd = (int)this->sessionId;
     return 0;
 }
 
-Spider::Spider(int port)
-{
-    this->m_conn_table.resize(CONN_MAXFD);
-    for (int c = 0; c < CONN_MAXFD; ++c)
-    {
-        m_conn_table[c].sock = c;
-        m_conn_table[c].spider = this;
-        m_conn_table[c].readBuffer.init();
-        m_conn_table[c].writeBuffer.init();
-        m_conn_table[c].cbAlloc();
-    }
-    for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
-        this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
-
-    listen_thread = std::thread(initThreadCB, this, port);
-}
-
-Spider::~Spider()
+Poller::~Poller()
 {
     sockInfo connectSockInfo;
-    connectSockInfo.task = Spider::REQ_SHUTDOWN;
+    connectSockInfo.task = Poller::REQ_SHUTDOWN;
     for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
     {
         this->acceptTaskQueue[i].enqueue(connectSockInfo);
@@ -77,34 +58,28 @@ Spider::~Spider()
     }
     for (int c = 0; c < CONN_MAXFD; ++c)
     {
-        connection* conn = &m_conn_table[c];
+        Session* conn = sessions[c];
         if (conn->type)
         {
-            close(conn->sock);
+            close(conn->sessionId);
         }
-        m_conn_table[c].readBuffer.destroy();
-        m_conn_table[c].writeBuffer.destroy();
+        sessions[c]->readBuffer.destroy();
+        sessions[c]->writeBuffer.destroy();
     }
     close(lisSock);
-}
-
-int Spider::initThreadCB(Spider* self, int port)
-{
-    self->start1(port);
-    return 0;
 }
 
 struct event_data {
     char buffer[BUFFER_SIZE];
     int buffer_read;
     int buffer_write;
-    Spider* this_ptr;
+    Poller* this_ptr;
     int type;
     int (*on_read) (struct event_data *self, struct kevent *event);
     int (*on_write) (struct event_data *self, struct kevent *event);
 };
 
-void Spider::event_server_listen (int port) {
+void Poller::event_server_listen (int port) {
     int err, flags;
 
     this->queue = kqueue();
@@ -112,15 +87,15 @@ void Spider::event_server_listen (int port) {
 
     this->lisSock = socket(AF_INET, SOCK_STREAM, 0);
     if (this->lisSock < 0) on_error("Could not create server socket: %s\n", strerror(errno))
-
-    this->server.sin_family = AF_INET;
-    this->server.sin_port = htons(port);
-    this->server.sin_addr.s_addr = htonl(INADDR_ANY);
+    struct sockaddr_in server;
+    server.sin_family = AF_INET;
+    server.sin_port = htons(port);
+    server.sin_addr.s_addr = htonl(INADDR_ANY);
 
     int opt_val = 1;
     setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 
-    err = bind(this->lisSock, (struct sockaddr *) &this->server, sizeof(this->server));
+    err = bind(this->lisSock, (struct sockaddr *) &server, sizeof(server));
     if (err < 0) on_error("Could not bind server socket: %s\n", strerror(errno));
 
     flags = fcntl(this->lisSock, F_GETFL, 0);
@@ -133,7 +108,7 @@ void Spider::event_server_listen (int port) {
     if (err < 0) on_error("Could not listen: %s\n", strerror(errno));
 }
 
-void Spider::event_change(int ident, int filter, int flags, void *udata)
+void Poller::event_change(int ident, int filter, int flags, void *udata)
 {
     struct kevent *e;
 
@@ -157,7 +132,7 @@ void Spider::event_change(int ident, int filter, int flags, void *udata)
     e->udata = udata;
 }
 
-void Spider::event_loop()
+void Poller::event_loop()
 {
     int new_events;
     struct timespec tim={1,0};
@@ -173,7 +148,7 @@ void Spider::event_loop()
         {
             if(taskInfo.task == REQ_DISCONNECT)
             {
-                connection* conn = &this->m_conn_table[taskInfo.fd];
+                Session* conn = this->sessions[taskInfo.fd];
                 if(conn->rrindex == taskInfo.rrindex && conn->type != 0)
                     closeConnection(conn);
             }
@@ -226,15 +201,15 @@ void Spider::event_loop()
     }
 }
 
-int Spider::event_flush_write(struct event_data *self, struct kevent *event) {
+int Poller::event_flush_write(struct event_data *self, struct kevent *event) {
 
     int sock = event->ident;
     //todo read到close之后是否有write事件?rrindex判断
-    connection* conn = &m_conn_table[sock];
+    Session* conn = sessions[sock];
     if (conn->writeBuffer.size == 0)
         return 0;
 
-    int ret = write(conn->sock, (void*) conn->writeBuffer.buff,
+    int ret = write(conn->sessionId, (void*) conn->writeBuffer.buff,
                     conn->writeBuffer.size);
 
     if (ret == -1)
@@ -243,55 +218,43 @@ int Spider::event_flush_write(struct event_data *self, struct kevent *event) {
         {
             return -1;
         }
-        event_change(conn->sock, EVFILT_WRITE, EV_ENABLE, self);
+        event_change(conn->sessionId, EVFILT_WRITE, EV_ENABLE, self);
     }
     else
     {
         conn->writeBuffer.erase(ret);
     }
     if(conn->writeBuffer.size == 0)
-        event_change(conn->sock, EVFILT_WRITE, EV_DISABLE, self);
+        event_change(conn->sessionId, EVFILT_WRITE, EV_DISABLE, self);
     return 0;
 }
 
-void Spider::closeConnection(connection* conn)
+void Poller::closeConnection(Session* conn)
 {
 
     //struct epoll_event evReg;
-    close(conn->sock);
+    close(conn->sessionId);
     conn->type = 0;
     conn->readBuffer.erase(conn->readBuffer.size);
     conn->writeBuffer.erase(conn->writeBuffer.size);
     //epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
 }
 
-int Spider::event_on_read(struct event_data *self, struct kevent *event){
+int Poller::event_on_read(struct event_data *self, struct kevent *event){
 
     int sock = event->ident;
-    connection* conn = &this->m_conn_table[sock];
-    char buff[BUFFER_SIZE];
-    int ret = read(conn->sock, buff, BUFFER_SIZE);
+    Session* conn = this->sessions[sock];
+    unsigned char buff[BUFFER_SIZE];
+    int ret = read(conn->sessionId, buff, BUFFER_SIZE - 1);
 
     if (ret > 0)
     {
-        conn->readBuffer.push_back(ret, buff);
-        const int buffSize = *(int*) conn->readBuffer.buff;
-        if (conn->readBuffer.size >= 4 && buffSize <= conn->readBuffer.size)
-        {
-            Msg msg;
-            msg.buffer = conn->readBuffer;
-            msg.buffer.buff = (char*)malloc((size_t)conn->readBuffer.capacity);
-            msg.fd = conn->sock;
-            memcpy(msg.buffer.buff,conn->readBuffer.buff, conn->readBuffer.size);
-
-
-            while(true)
-            {
-                if(this->msgQueue.enqueue(msg))
-                    break;
-            }
-            conn->readBuffer.erase(conn->readBuffer.size);
-        }
+        //TODO
+        buff[ret] = 0;
+        Msg msg;
+        msg.len = ret;
+        msg.buff = buff;
+        onReadMsg(conn->sessionId, msg);
     }
 
     if (ret < 0) {
@@ -310,12 +273,12 @@ int Spider::event_on_read(struct event_data *self, struct kevent *event){
     return 0;
 }
 
-int Spider::event_on_write (struct event_data *self, struct kevent *event) {
+int Poller::event_on_write (struct event_data *self, struct kevent *event) {
 
     return event_flush_write(self, event);
 }
 
-int Spider::event_on_accept(struct event_data *self, struct kevent *event) {
+int Poller::event_on_accept(struct event_data *self, struct kevent *event) {
     struct sockaddr client;
     socklen_t client_len = sizeof(client);
 
@@ -327,37 +290,45 @@ int Spider::event_on_accept(struct event_data *self, struct kevent *event) {
         if (errno == EWOULDBLOCK || errno == EAGAIN) return 0;
         on_error("Accept failed (should this be fatal?): %s\n", strerror(errno));
     }
-    this->m_conn_table[client_fd].type = 1;
-    this->m_conn_table[client_fd].rrindex = rrIndex++;
-
+    this->sessions[client_fd]->type = 1;
+    this->sessions[client_fd]->rrindex = rrIndex++;
+    this->sessions[client_fd]->sessionId = (uint64_t)client_fd;
     flags = fcntl(client_fd, F_GETFL, 0);
     if (flags < 0) on_error("Could not get client socket flags: %s\n", strerror(errno));
 
     err = fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
     if (err < 0) on_error("Could not set client socket to be non blocking: %s\n", strerror(errno));
 
-    this->m_conn_table[client_fd].client_data = (struct event_data *) malloc(sizeof(struct event_data));
-    this->m_conn_table[client_fd].client_data->this_ptr = this;//TODO
+    this->sessions[client_fd]->client_data = (struct event_data *) malloc(sizeof(struct event_data));
+    this->sessions[client_fd]->client_data->this_ptr = this;//TODO
 
-    this->m_conn_table[client_fd].client_data->type = RW_EVENT;
-    event_change(client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, this->m_conn_table[client_fd].client_data);
-    event_change(client_fd, EVFILT_WRITE, EV_ADD | EV_DISABLE, this->m_conn_table[client_fd].client_data);
+    this->sessions[client_fd]->client_data->type = RW_EVENT;
+    event_change(client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, this->sessions[client_fd]->client_data);
+    event_change(client_fd, EVFILT_WRITE, EV_ADD | EV_DISABLE, this->sessions[client_fd]->client_data);
 
     return 1;
 }
 
-bool Spider::get(Msg& msg)
+bool Poller::get(Msg& msg)
 {
     return this->msgQueue.try_dequeue(msg);
 }
 
-void Spider::disconnect(int fd)
+void Poller::disconnect(int fd)
 {
-    m_conn_table[fd].disconnect();
+    sessions[fd]->disconnect();
 }
 
-int Spider::start1(int port)
+int Poller::run(int port)
 {
+    signal(SIGPIPE, SIG_IGN);
+
+    for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
+        this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
+
+    //listen_thread = std::thread(initThreadCB, this, port);//TODO
+
+
     struct event_data server = {
             .type = ACCEPT_EVENT,
             .this_ptr  = this //TODO
@@ -370,7 +341,7 @@ int Spider::start1(int port)
     return 0;
 }
 
-int Spider::connect(const char * ip, short port)
+int Poller::connect(const char * ip, short port)
 {
     int socketFd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -397,9 +368,11 @@ int Spider::connect(const char * ip, short port)
 }
 
 
-int Spider::_send(int fd, char *data, int len)
-{
-    connection* conn = &this->m_conn_table[fd];
+int Poller::sendMsg(uint64_t fd, const Msg &msg) {
+    unsigned char* data = msg.buff;
+    int len = msg.len;
+    Session* conn = this->sessions[fd];
+    int leftBytes = 0;
     if (conn->writeBuffer.size > 0)
     {
         conn->writeBuffer.push_back(len, data);
@@ -407,23 +380,26 @@ int Spider::_send(int fd, char *data, int len)
     }
     else
     {
-        int ret = write(conn->sock, data, len);
+        int ret = write(conn->sessionId, data, len);
         if (ret > 0)
         {
             if (ret == len)
                 return 0;
 
-            int left = len - ret;
-            conn->writeBuffer.push_back(left, data + ret);
+            leftBytes = len - ret;
+            conn->writeBuffer.push_back(leftBytes, data + ret);
         }
         else
         {
             if (errno != EINTR && errno != EAGAIN)
                 return -1;
 
+            leftBytes = len;
             conn->writeBuffer.push_back(len, data);
         }
     }
+    if(leftBytes>0)
+        event_change(conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ENABLE, this->sessions[conn->sessionId]->client_data);
 
     return 0;
 }
