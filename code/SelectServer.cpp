@@ -234,6 +234,7 @@ void Poller::workerThread(int index)
 
 int Poller::run(int port)
 {
+    signal(SIGPIPE, SIG_IGN);
     maxWorker = 4;
     taskQueue.resize(maxWorker);
 
