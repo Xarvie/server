@@ -20,7 +20,7 @@
 
 //#include "concurrentqueue.h"
 //#include "block.h"
-
+#include "NetStruct.h"
 enum
 {
     BUFFER_SIZE = 4096,

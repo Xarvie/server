@@ -1,5 +1,5 @@
 
-#include "config.h"
+#include "SystemReader.h"
 #ifdef OS_WINDOWS
 #pragma warning (disable:4127)
 
@@ -20,11 +20,10 @@
 #include <stdlib.h>
 #include <strsafe.h>
 #include <thread>
-#include "IocpServer.h"
 #include <vector>
 #include <mutex>
 #include "Spider.h"
-#include "queue.h"
+#include "Queue.h"
 
 PER_SOCKET_CONTEXT *g_pCtxtList = NULL;        //上下文链表
 std::recursive_mutex *xxx;

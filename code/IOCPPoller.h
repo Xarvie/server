@@ -1,4 +1,4 @@
-#include "config.h"
+#include "SystemReader.h"
 #ifdef OS_WINDOWS
 
 #ifndef IOCPSERVER_H
@@ -7,6 +7,7 @@
 #include <mswsock.h>
 #include <vector>
 #include "queue.h"
+#include "NetStruct.h"
 
 #define MAX_BUFF_SIZE       8192
 

@@ -1,5 +1,5 @@
 
-#include "config.h"
+#include "SystemReader.h"
 
 #if defined(OS_LINUX) && !defined(SELECT_SERVER)
 
@@ -27,7 +27,7 @@
 
 #include "Spider.h"
 
-
+#include "NetStruct.h"
 /*
 Poller::Poller(int port) {
 

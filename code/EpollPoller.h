@@ -1,4 +1,4 @@
-#include "config.h"
+#include "SystemReader.h"
 #ifdef OS_LINUX
 
 #ifndef SERVER_SPIDER_H_
@@ -8,8 +8,8 @@
 #include <iostream>
 #include <string>
 #include <list>
-#include "queue.h"
-
+#include "Queue.h"
+#include "NetStruct.h"
 #define MAX_BUFF_SIZE       8192
 
 #define xmalloc malloc

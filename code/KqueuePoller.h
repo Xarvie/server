@@ -1,5 +1,6 @@
 
-#include "DefConfig.h"
+#include "SystemReader.h"
+
 #if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 
 #ifndef SERVER_SPIDER_H_
@@ -10,6 +11,7 @@
 #include <string>
 #include <list>
 #include "queue.h"
+#include "NetStruct.h"
 
 class Poller;
 struct sockInfo

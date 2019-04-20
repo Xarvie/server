@@ -4,7 +4,7 @@
  *  Created on: Jan 19, 2019
  *      Author: xarvie
  */
-#include "config.h"
+#include "SystemReader.h"
 #if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 #include <stdlib.h>
 #include <stdio.h>

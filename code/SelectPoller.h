@@ -10,7 +10,8 @@
 #include <iostream>
 #include <string>
 #include <list>
-#include "queue.h"
+#include "Queue.h"
+#include "Spider.h"
 
 #define MAX_BUFF_SIZE       8192
 

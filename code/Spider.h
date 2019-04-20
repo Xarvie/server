@@ -5,7 +5,7 @@
 #ifndef MAIN_SPIDER_H
 #define MAIN_SPIDER_H
 
-#include "config.h"
+#include "SystemReader.h"
 
 #include <vector>
 #include <iostream>
@@ -15,22 +15,22 @@
 #include <mutex>
 #include <map>
 #include "Buffer.h"
+#include "NetStruct.h"
 
 #if defined(SELECT_SERVER)
-
-#include "SelectServer.h"
+#include "SelectPoller.h"
 
 #elif defined(OS_LINUX)
 
-#include "EpollServer.h"
+#include "EpollPoller.h"
 
 #elif defined(OS_DARWIN)
 
-#include "KqueueServer.h"
+#include "KqueuePoller.h"
 
 #elif defined(OS_WINDOWS)
 
-#include "IocpServer.h"
+#include "IocpPoller.h"
 
 #endif
 
