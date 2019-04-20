@@ -1,6 +1,6 @@
 
 #include "DefConfig.h"
-#ifdef OS_DARWIN
+#if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 
 #ifndef SERVER_SPIDER_H_
 #define SERVER_ANT_H_

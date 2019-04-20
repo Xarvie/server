@@ -18,6 +18,7 @@ Spider::Spider(int port, int threadsNum) {
         //sessions[i] = new(xmalloc(sizeof(Session))) Session;
         sessions[i] = new Session;
         sessions[i]->reset();
+        sessions[i]->sessionId = (uint64_t)i;
 
     }
 }
@@ -35,7 +36,6 @@ Spider::~Spider() {
 void Spider::onReadMsg(uint64_t sessionId, const Msg &msg) {
     std::cout << msg.buff;
     this->sendMsg(sessionId, msg);
-
 }
 
 void Spider::onWriteBytes(uint64_t sessionId, int len) {

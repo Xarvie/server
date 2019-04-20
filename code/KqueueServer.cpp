@@ -5,7 +5,7 @@
  *      Author: xarvie
  */
 #include "DefConfig.h"
-#ifdef OS_DARWIN
+#if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>

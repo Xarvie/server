@@ -16,8 +16,11 @@
 #include <map>
 #include "Buffer.h"
 
+#if defined(SELECT_SERVER)
 
-#if defined(OS_LINUX)
+#include "SelectServer.h"
+
+#elif defined(OS_LINUX)
 
 #include "EpollServer.h"
 

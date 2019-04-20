@@ -1,9 +1,3 @@
-/*
- * Spider.cpp
- *
- *  Created on: Jan 19, 2019
- *      Author: xarvie
- */
 
 #include "config.h"
 
