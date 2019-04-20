@@ -1,7 +1,7 @@
 
 #include "config.h"
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) && !defined(SELECT_SERVER)
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -48,18 +48,9 @@ Poller& Poller::operator = (Poller &&rhs) noexcept
 */
 Poller::~Poller() {
     init_thread.join();
-    sockInfo taskInfo;
-    taskInfo.task = Poller::REQ_SHUTDOWN;
-
-    this->listenTaskQueue.enqueue(taskInfo);
-
-    for (int i = 0; i < EPOLL_NUM; i++) {
-        this->acceptTaskQueue[i].enqueue(taskInfo);
-    }
-
     int i = 0, c = 0;
 
-    for (i = 0; i < EPOLL_NUM; ++i) {
+    for (i = 0; i < this->maxWorker; ++i) {
         if (worker[i].joinable())
             worker[i].join();
     }
@@ -78,7 +69,7 @@ Poller::~Poller() {
         sessions[c]->writeBuffer.destroy();
     }
 
-    for (int epi = 0; epi < EPOLL_NUM; ++epi) {
+    for (int epi = 0; epi < this->maxWorker; ++epi) {
         close(epolls[epi]);
     }
     close(lisSock);
@@ -175,7 +166,7 @@ int Poller::handleWriteEvent(Session *conn) {
     if (ret == -1) {
 
         if (errno != EINTR && errno != EAGAIN) {
-            printf("%d\n", errno);
+            printf("err: write%d\n", errno);
             return -1;
         }
     } else if (ret == 0) {
@@ -196,41 +187,26 @@ void Poller::closeConnection(Session *conn) {
     close(conn->sessionId);
     conn->readBuffer.erase(conn->readBuffer.size);
     conn->writeBuffer.erase(conn->writeBuffer.size);
-    epoll_ctl(epolls[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sessionId, &evReg);
+    epoll_ctl(epolls[conn->rrindex % this->maxWorker], EPOLL_CTL_DEL, conn->sessionId, &evReg);
 }
 
 #endif
 
-void Poller::workerThreadCB(Poller *thisPtr/*TODO bug?*/, std::vector<int>* fd, int epindex) {
-    thisPtr->workerThread(fd, epindex);
+void Poller::workerThreadCB(Poller *thisPtr/*TODO bug?*/, int epindex) {
+    thisPtr->workerThread(epindex);
 }
 
-void Poller::workerThread(std::vector<int>*epollfd, int epindex) {
-    int epolls = (*epollfd)[epindex];
+void Poller::workerThread(int epindex) {
+    int epfd = this->epolls[epindex];
 
     struct epoll_event event;
     struct epoll_event evReg;
 
     while (true) {
-        int numEvents = epoll_wait(epolls, &event, 1, 1000);//TODO wait 1
+        int numEvents = epoll_wait(epfd, &event, 1, 1000);//TODO wait 1
         sockInfo taskInfo;
         int shutdown = 0;
-        while (true) {
-            bool ret = this->acceptTaskQueue[epindex].try_dequeue(taskInfo);
-            if (ret == false)
-                break;
 
-            if (taskInfo.task == REQ_DISCONNECT) {
-                Session *conn = this->sessions[taskInfo.fd];
-                if (conn->rrindex == taskInfo.rrindex)
-                    closeConnection(conn);
-            }
-            if (taskInfo.task == REQ_SHUTDOWN) {
-                shutdown = 1;
-                break;
-            }
-
-        }
         if (shutdown) {
             break;
         }
@@ -262,24 +238,23 @@ void Poller::workerThread(std::vector<int>*epollfd, int epindex) {
             if (conn->writeBuffer.size > 0)
                 evReg.events |= EPOLLOUT;
             evReg.data.fd = sock;
-            epoll_ctl(epolls, EPOLL_CTL_MOD, conn->sessionId, &evReg);
+            epoll_ctl(epfd, EPOLL_CTL_MOD, conn->sessionId, &evReg);
         }
     }
 }
 
-void Poller::listenThreadCB(Poller *thisPtr/*TODO bug?*/, void *arg) {
-    thisPtr->listenThread(arg);
+void Poller::listenThreadCB(Poller *thisPtr/*TODO bug?*/, int port) {
+    thisPtr->listenThread(port);
 }
 
 int Poller::listen(const int port) {
     sockInfo connectSockInfo;
     connectSockInfo.port = port;
     connectSockInfo.task = 1;
-    listenTaskQueue.enqueue(connectSockInfo);
     return 0;
 }
 
-void Poller::listenThread(void *arg) {
+void Poller::listenThread(int port) {
     int lisEpfd = epoll_create(5);
 
     struct epoll_event evReg;
@@ -312,7 +287,7 @@ void Poller::listenThread(void *arg) {
         }
 
         if (numEvent > 0) {
-            sockInfo deque;
+
             int sock = accept(this->lisSock, NULL, NULL);
             if (sock > 0) {
 //                this->sessions[sock].type = 1; //TODO
@@ -336,11 +311,10 @@ void Poller::listenThread(void *arg) {
                 evReg.events = EPOLLIN | EPOLLONESHOT;
                 this->sessions[sock]->sessionId = sock;
                 this->sessions[sock]->rrindex = rrIndex++;
-                epoll_ctl(this->epolls[rrIndex % EPOLL_NUM], EPOLL_CTL_ADD, sock, &evReg);
+                epoll_ctl(this->epolls[rrIndex % this->maxWorker], EPOLL_CTL_ADD, sock, &evReg);
 
 
-                deque.event = 1;
-                eventQueue.enqueue(deque);
+
             }
         }
     }
@@ -351,12 +325,12 @@ void Poller::listenThread(void *arg) {
 
 int Poller::run(int port) {
     epolls.resize(maxWorker);
-    for (int i = 0; i < EPOLL_NUM; i++)
-        this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
+    for (int i = 0; i < this->maxWorker; i++)
+        this->taskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
 
 
     int epi;
-    for (epi = 0; epi < EPOLL_NUM; ++epi) {
+    for (epi = 0; epi < this->maxWorker; ++epi) {
         epolls[epi] = epoll_create(20);
     }
 
@@ -391,11 +365,11 @@ int Poller::run(int port) {
 
     int i;
 
-    for (i = 0; i < EPOLL_NUM; ++i) {
-        worker.emplace_back(Poller::workerThreadCB, this, &epolls, i);
+    for (i = 0; i < this->maxWorker; ++i) {
+        worker.emplace_back(Poller::workerThreadCB, this, i);
     }
 
-    listen_thread = std::thread(Poller::listenThreadCB, this, nullptr);
+    listen_thread = std::thread(Poller::listenThreadCB, this, port);
 
     return 0;
 }
@@ -424,7 +398,7 @@ int Poller::connect(const char *ip, short port) {
         close(socketFd);
         return false;
     }
-    listenTaskQueue.enqueue(connectSockInfo);
+    //listenTaskQueue.enqueue(connectSockInfo);
     return 0;
 }
 

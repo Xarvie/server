@@ -83,10 +83,10 @@ public:
 	int handleReadEvent(Session* conn);
 	int handleWriteEvent(Session* conn);
 	void closeConnection(Session* conn);
-	static void workerThreadCB(Poller* thisPtr, std::vector<int>* epfd, int epindex);
-	static void listenThreadCB(Poller* thisPtr, void *arg);
-	void workerThread(std::vector<int>* epfd, int epindex);
-	void listenThread(void *arg);
+	static void workerThreadCB(Poller* thisPtr, int epindex);
+	static void listenThreadCB(Poller* thisPtr, int port);
+	void workerThread(int epindex);
+	void listenThread(int port);
 	int listen(int port);
 	int connect(const char * ip, short port);
 	int run(int port);
@@ -102,8 +102,7 @@ public:
 		REQ_CONNECT
 	};
 #define CONN_MAXFD 65535
-Session* sessions[65535] ;
-#define EPOLL_NUM 8
+std::vector<Session*> sessions;
 
 	int maxWorker = 4;
 	std::vector<int> epolls;
@@ -111,9 +110,7 @@ Session* sessions[65535] ;
     std::vector<std::thread> worker;
     std::thread listen_thread;
     std::thread init_thread;
-    moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
-    moodycamel::ConcurrentQueue<sockInfo> eventQueue;
-    std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+	std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
 };
 
 #endif /* SERVER_SPIDER_H_ */
