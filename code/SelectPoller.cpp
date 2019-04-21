@@ -69,12 +69,14 @@ int Poller::handleReadEvent(Session *conn) {
         msg.len = ret;
         msg.buff = buff;
         onReadMsg(conn->sessionId, msg);
-        //std::cout << buff << std::endl;
+
+        std::cout << "t:" <<std::this_thread::get_id() << std::endl;
+
     } else if (ret == 0) {
         return -1;
     } else {
         if (errno != EINTR && errno != EAGAIN  && errno != EWOULDBLOCK) {
-            std::cout << "err: read " << errno << std::endl;
+            std::cout << "err: recv " << errno << std::endl;
             return -1;
         }
     }

@@ -108,13 +108,12 @@ public:
     std::vector<Session*> sessions;
 #define EPOLL_NUM 8
 
-    int maxWorker = 1;
+    int maxWorker = 4;
     std::vector<int> epolls;
     uint64_t lisSock;
     std::vector<std::thread> worker;
     std::thread listen_thread;
     std::thread init_thread;
-    //moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
 

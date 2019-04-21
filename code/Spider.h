@@ -84,7 +84,6 @@ private:
     RawSocket serverSocket;
 
     std::map<int, void*> spiderOption;
-    int num = 4;
 };
 
 
