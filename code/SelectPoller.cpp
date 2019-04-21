@@ -217,7 +217,7 @@ void Poller::workerThread(int index) {
     }
 #else
     for (int i = 0; i < clients.size(); i++){
-        close(clients[n]);
+        close(clients[i]);
     }
 #endif
 
