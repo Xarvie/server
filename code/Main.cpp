@@ -1,7 +1,3 @@
-//
-// Created by ftp on 4/3/2019.
-//
-
 #include "Spider.h"
 
 int main()
