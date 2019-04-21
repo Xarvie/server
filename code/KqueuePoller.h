@@ -10,7 +10,7 @@
 #include <iostream>
 #include <string>
 #include <list>
-#include "queue.h"
+#include "Queue.h"
 #include "NetStruct.h"
 
 class Poller;
