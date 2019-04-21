@@ -108,7 +108,7 @@ public:
     std::vector<Session*> sessions;
 #define EPOLL_NUM 8
 
-    int maxWorker = 4;
+    int maxWorker = 1;
     std::vector<int> epolls;
     uint64_t lisSock;
     std::vector<std::thread> worker;

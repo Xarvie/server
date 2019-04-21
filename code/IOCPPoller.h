@@ -1,5 +1,5 @@
 #include "SystemReader.h"
-#ifdef OS_WINDOWS
+#if defined(OS_WINDOWS) && !defined(SELECT_SERVER)
 
 #ifndef IOCPSERVER_H
 #define IOCPSERVER_H
@@ -114,7 +114,7 @@ public:
     std::thread listenThread;
     std::vector<std::list<Session*>*> onlineSessionLists;
     std::vector<std::thread> workThreads;
-    Session* sessions[65535];
+    std::vector<Session*> sessions;
 
     std::vector<moodycamel::ConcurrentQueue<int>> taskQueue;
 

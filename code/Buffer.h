@@ -74,7 +74,6 @@ public:
     std::list<int> size_list;
     int size = 0;
     unsigned char* buff = nullptr;
-    unsigned char* buff2 = nullptr;
     int capacity = 0;
 };
 
