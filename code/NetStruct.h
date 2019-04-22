@@ -53,7 +53,6 @@
 struct sockInfo
 {
     //TODO move construct
-    unsigned short rrindex;
     int port;
     char ip[128];
     int fd;

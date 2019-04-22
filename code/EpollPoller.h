@@ -11,7 +11,6 @@ class Session
 public:
 	//TODO move construct
 	uint64_t sessionId;
-	unsigned short rrindex;
 	int64_t preHeartBeats = 0;
 	MessageBuffer writeBuffer;
 	MessageBuffer readBuffer;
@@ -19,7 +18,6 @@ public:
 	void reset()
 	{
 		sessionId = 0;
-		rrindex = 0;
 		preHeartBeats = 0;
 		readBuffer.reset();
 		writeBuffer.reset();

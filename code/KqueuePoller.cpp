@@ -19,7 +19,6 @@ int Session::disconnect()
 {
     sockInfo connectSockInfo;
     connectSockInfo.task = Poller::REQ_DISCONNECT;
-    connectSockInfo.rrindex = this->rrindex;
     connectSockInfo.fd = (int)this->sessionId;
     return 0;
 }
@@ -129,8 +128,7 @@ void Poller::event_loop()
             if(taskInfo.task == REQ_DISCONNECT)
             {
                 Session* conn = this->sessions[taskInfo.fd];
-                if(conn->rrindex == taskInfo.rrindex && conn->type != 0)
-                    closeConnection(conn);
+
             }
             if(taskInfo.task == REQ_SHUTDOWN)
             {
@@ -184,7 +182,6 @@ void Poller::event_loop()
 int Poller::event_flush_write(struct event_data *self, struct kevent *event) {
 
     int sock = event->ident;
-    //todo read到close之后是否有write事件?rrindex判断
     Session* conn = sessions[sock];
     if (conn->writeBuffer.size == 0)
         return 0;
@@ -217,7 +214,6 @@ void Poller::closeConnection(Session* conn)
     conn->type = 0;
     conn->readBuffer.erase(conn->readBuffer.size);
     conn->writeBuffer.erase(conn->writeBuffer.size);
-    //epoll_ctl(epfd[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sock, &evReg);
 }
 
 int Poller::event_on_read(struct event_data *self, struct kevent *event){
@@ -271,7 +267,6 @@ int Poller::event_on_accept(struct event_data *self, struct kevent *event) {
         on_error("Accept failed (should this be fatal?): %s\n", strerror(errno));
     }
     this->sessions[client_fd]->type = 1;
-    this->sessions[client_fd]->rrindex = rrIndex++;
     this->sessions[client_fd]->sessionId = (uint64_t)client_fd;
     flags = fcntl(client_fd, F_GETFL, 0);
     if (flags < 0) on_error("Could not get client socket flags: %s\n", strerror(errno));

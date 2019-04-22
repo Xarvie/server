@@ -15,7 +15,6 @@ public:
     };
 
     uint64_t sessionId;
-	unsigned short rrindex;
 	int type; /*0:null 1:accept 2:connect*/
     int64_t preHeartBeats = 0;
 
@@ -31,7 +30,6 @@ public:
     void reset()
     {
         sessionId = 0;
-        rrindex = 0;
         preHeartBeats = 0;
         readBuffer.reset();
         writeBuffer.reset();
@@ -100,7 +98,6 @@ public:
 
 
     int queue;
-    unsigned short rrIndex = 0;
     enum {
         ACCEPT_EVENT,
         RW_EVENT

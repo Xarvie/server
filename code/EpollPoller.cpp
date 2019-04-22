@@ -144,7 +144,7 @@ void Poller::closeConnection(Session *conn) {
     close(conn->sessionId);
     conn->readBuffer.erase(conn->readBuffer.size);
     conn->writeBuffer.erase(conn->writeBuffer.size);
-    epoll_ctl(epolls[conn->rrindex % this->maxWorker], EPOLL_CTL_DEL, conn->sessionId, &evReg);
+    //TODO
 }
 
 #endif
@@ -218,8 +218,6 @@ void Poller::listenThreadCB(int port) {
 
     struct epoll_event event;
 
-    unsigned short rrIndex = 0; /* round robin rrindex */
-
     while (true) {
         int numEvent = epoll_wait(lisEpfd, &event, 1, 1000);
 
@@ -262,8 +260,7 @@ void Poller::listenThreadCB(int port) {
                 evReg.data.fd = sock;
                 evReg.events = EPOLLIN | EPOLLONESHOT;
                 this->sessions[sock]->sessionId = sock;
-                this->sessions[sock]->rrindex = rrIndex++;
-                epoll_ctl(this->epolls[rrIndex % this->maxWorker], EPOLL_CTL_ADD, sock, &evReg);
+                epoll_ctl(this->epolls[sock % this->maxWorker], EPOLL_CTL_ADD, sock, &evReg);
 
 
 
