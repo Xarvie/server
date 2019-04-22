@@ -78,6 +78,8 @@ public:
 
     std::vector<moodycamel::ConcurrentQueue<int>> taskQueue;
 
+    std::recursive_mutex *xxx = NULL;
+
 };
 
 #endif

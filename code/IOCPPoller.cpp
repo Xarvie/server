@@ -1,20 +1,10 @@
 
 #include "SystemReader.h"
 
-#if  defined(OS_WINDOWS) && !defined(SELECT_SERVER)
-#pragma warning (disable:4127)
-
-#ifdef _IA64_
-#pragma warning(disable:4267)
-#endif
-
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
+#if defined(OS_WINDOWS) && !defined(SELECT_SERVER)
 
 #include "IOCPPoller.h"
 
-std::recursive_mutex *xxx;
 
 int x = 0;
 
@@ -44,10 +34,6 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
     DWORD dwIoSize = 0;
 
     while (TRUE) {
-
-        //
-        // continually loop to service io completion packets
-        //
         bSuccess = GetQueuedCompletionStatus(hIOCP, &dwIoSize,
                                              (PDWORD_PTR) &lpPerSocketContextNULL,
                                              (LPOVERLAPPED *) &lpOverlapped,
@@ -68,10 +54,6 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
             continue;
         }
 
-        //
-        // determine what type of IO packet has completed by checking the PER_IO_CONTEXT
-        // associated with this socket.  This will determine what action to take.
-        //
         uint64_t sessionId = lpPerSocketContext->sessionId;
         switch (lpPerSocketContext->IOOperation) {
             case ClientIoRead: {
@@ -107,7 +89,6 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
                 lpPerSocketContext->IOOperation = ClientIoWrite;
                 lpPerSocketContext->nSentBytes += dwIoSize;
 
-                self->sessions[sessionId]->sessionId;
                 self->sessions[sessionId]->writeBuffer.erase(dwIoSize);
 
                 self->onWriteBytes(lpPerSocketContext->sessionId, dwIoSize);//TODO x
@@ -209,111 +190,116 @@ int Poller::closeSession(uint64_t sessionId) {
 }
 
 int Poller::run(int port) {
-    SYSTEM_INFO systemInfo;
-    WSADATA wsaData;
-    SOCKET sdAccept = INVALID_SOCKET;
-    PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
-    DWORD dwRecvNumBytes = 0;
-    DWORD dwFlags = 0;
-    int nRet = 0;
-    GetSystemInfo(&systemInfo);
-    taskQueue.resize(this->maxWorker);
+    {/* init */
+        WSADATA wsaData;
+        int nRet = 0;
+        if ((nRet = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
+            printf("WSAStartup() failed: %d\n", nRet);
+            return -1;
+        }
+        xxx = new std::recursive_mutex;
 
-    if ((nRet = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
-        printf("WSAStartup() failed: %d\n", nRet);
-        return -1;
+    }
+    {/* init queue  */
+        taskQueue.resize(this->maxWorker);
+        g_bEndServer = FALSE;
+    }
+    {/*create pollers*/
+        iocps.resize(maxWorker);
+        for (auto &E:iocps) {
+            E = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
+            if (E == NULL) {
+                printf("CreateIoCompletionPort() failed to create I/O completion port: %d\n",
+                       GetLastError());
+                exit(-16);
+            }
+        }
     }
 
-    xxx = new std::recursive_mutex;
-    g_bEndServer = FALSE;
-
-
-    iocps.resize(maxWorker);
-
-    for (auto &E:iocps) {
-        E = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
-        if (E == NULL) {
-            printf("CreateIoCompletionPort() failed to create I/O completion port: %d\n",
-                   GetLastError());
+    {/* start listen*/
+        if (!CreateListenSocket())
             exit(-16);
-        }
+    }
+    {/* start listen*/
+        listenThread = std::thread([&] {
+            for (int i = 0; i < maxWorker; i++) {
+                workThreads.emplace_back(WorkerThread, this, iocps[i]);
+            }
+
+            SOCKET sdAccept = INVALID_SOCKET;
+            PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
+            DWORD dwRecvNumBytes = 0;
+            DWORD dwFlags = 0;
+            int nRet = 0;
+
+            while (true) {
+                sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
+
+                if (sdAccept == SOCKET_ERROR) {
+                    printf("WSAAccept() failed: %d\n", WSAGetLastError());
+                    exit(-16);
+                }
+                this->onAccept(sdAccept, Addr());
+                int workerId = sdAccept / 4 % maxWorker;
+                lpPerSocketContext = UpdateCompletionPort(workerId, sdAccept, ClientIoRead, TRUE);
+                if (lpPerSocketContext == NULL)
+                    exit(-16);
+
+
+                sessions[sdAccept]->sessionId = sdAccept;
+                sessions[sdAccept]->iocp_context = lpPerSocketContext;
+
+                if (g_bEndServer)
+                    break;
+                nRet = WSARecv(sdAccept, &(lpPerSocketContext->wsabuf),
+                               1, &dwRecvNumBytes, &dwFlags,
+                               &(lpPerSocketContext->Overlapped), NULL);
+                if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
+                    printf("WSARecv() Failed: %d\n", WSAGetLastError());
+                    CloseClient(lpPerSocketContext, FALSE);
+                }
+            }
+
+
+            for (auto &E: workThreads) {
+                E.join();
+            }
+
+
+            for (auto &ipcpsE:iocps) {
+                if (ipcpsE) {
+                    PostQueuedCompletionStatus(ipcpsE, 0, 0, NULL);
+                }
+            }
+
+            //TODO CtxtListFree();
+
+            for (auto &ipcpsE:iocps) {
+                if (ipcpsE) {
+                    CloseHandle(ipcpsE);
+                    ipcpsE = NULL;
+                }
+            }
+
+            if (g_sdListen != INVALID_SOCKET) {
+                closesocket(g_sdListen);
+                g_sdListen = INVALID_SOCKET;
+            }
+
+            if (sdAccept != INVALID_SOCKET) {
+                closesocket(sdAccept);
+                sdAccept = INVALID_SOCKET;
+            }
+
+
+        });
+    }
+    {/*free*/
+        listenThread.join();
+        delete xxx;
+        WSACleanup();
     }
 
-
-    if (!CreateListenSocket())
-        exit(-16);
-    listenThread = std::thread([&] {
-
-
-        for (int i = 0; i < maxWorker; i++) {
-            workThreads.emplace_back(WorkerThread, this, iocps[i]);
-        }
-
-        while (true) {
-            sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
-
-            if (sdAccept == SOCKET_ERROR) {
-                printf("WSAAccept() failed: %d\n", WSAGetLastError());
-                exit(-16);
-            }
-            this->onAccept(sdAccept, Addr());
-            int workerId = sdAccept / 4 % maxWorker;
-            lpPerSocketContext = UpdateCompletionPort(workerId, sdAccept, ClientIoRead, TRUE);
-            if (lpPerSocketContext == NULL)
-                exit(-16);
-
-
-            sessions[sdAccept]->sessionId = sdAccept;
-            sessions[sdAccept]->iocp_context = lpPerSocketContext;
-
-            if (g_bEndServer)
-                break;
-            nRet = WSARecv(sdAccept, &(lpPerSocketContext->wsabuf),
-                           1, &dwRecvNumBytes, &dwFlags,
-                           &(lpPerSocketContext->Overlapped), NULL);
-            if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                printf("WSARecv() Failed: %d\n", WSAGetLastError());
-                CloseClient(lpPerSocketContext, FALSE);
-            }
-        }
-
-
-        for (auto &E: workThreads) {
-            E.join();
-        }
-
-
-        for (auto &ipcpsE:iocps) {
-            if (ipcpsE) {
-                PostQueuedCompletionStatus(ipcpsE, 0, 0, NULL);
-            }
-        }
-
-        //TODO CtxtListFree();
-
-        for (auto &ipcpsE:iocps) {
-            if (ipcpsE) {
-                CloseHandle(ipcpsE);
-                ipcpsE = NULL;
-            }
-        }
-
-        if (g_sdListen != INVALID_SOCKET) {
-            closesocket(g_sdListen);
-            g_sdListen = INVALID_SOCKET;
-        }
-
-        if (sdAccept != INVALID_SOCKET) {
-            closesocket(sdAccept);
-            sdAccept = INVALID_SOCKET;
-        }
-
-
-    });
-
-    listenThread.join();
-    delete xxx;
-    WSACleanup();
     return 0;
 }
 
@@ -454,14 +440,8 @@ void Poller::CloseClient(PER_SOCKET_CONTEXT *lpPerSocketContext,
     xxx->lock();
 
     if (lpPerSocketContext) {
-        if (g_bVerbose)
-            printf("CloseClient: Socket(%d) PER_SOCKET_CONTEXT closing (graceful=%s)\n",
-                   lpPerSocketContext->sessionId, (bGraceful ? "TRUE" : "FALSE"));
         if (!bGraceful) {
 
-            //
-            // force the subsequent closesocket to be abortative.
-            //
             LINGER lingerStruct;
 
             lingerStruct.l_onoff = 1;

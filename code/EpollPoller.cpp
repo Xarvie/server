@@ -284,6 +284,15 @@ void Poller::listenThread(int port) {
 
 
 int Poller::run(int port) {
+    {/* init */
+
+    }
+    {/* init queue  */
+        taskQueue.resize(this->maxWorker);
+        g_bEndServer = FALSE;
+    }
+
+
     epolls.resize(maxWorker);
     for (int i = 0; i < this->maxWorker; i++)
         this->taskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
