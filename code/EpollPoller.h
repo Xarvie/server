@@ -40,10 +40,9 @@ public:
 	int handleReadEvent(Session* conn);
 	int handleWriteEvent(Session* conn);
 	void closeConnection(Session* conn);
-	static void workerThreadCB(Poller* thisPtr, int epindex);
-	static void listenThreadCB(Poller* thisPtr, int port);
-	void workerThread(int epindex);
-	void listenThread(int port);
+
+	void workerThreadCB(int epindex);
+	void listenThreadCB(int port);
 	int listen(int port);
 	int connect(const char * ip, short port);
 	bool createListenSocket(int port);

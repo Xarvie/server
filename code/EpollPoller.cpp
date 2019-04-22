@@ -152,11 +152,9 @@ void Poller::closeConnection(Session *conn) {
 
 #endif
 
-void Poller::workerThreadCB(Poller *thisPtr/*TODO bug?*/, int epindex) {
-    thisPtr->workerThread(epindex);
-}
 
-void Poller::workerThread(int epindex) {
+
+void Poller::workerThreadCB(int epindex) {
     int epfd = this->epolls[epindex];
 
     struct epoll_event event;
@@ -203,9 +201,6 @@ void Poller::workerThread(int epindex) {
     }
 }
 
-void Poller::listenThreadCB(Poller *thisPtr/*TODO bug?*/, int port) {
-    thisPtr->listenThread(port);
-}
 
 int Poller::listen(const int port) {
     sockInfo connectSockInfo;
@@ -214,7 +209,7 @@ int Poller::listen(const int port) {
     return 0;
 }
 
-void Poller::listenThread(int port) {
+void Poller::listenThreadCB(int port) {
     int lisEpfd = epoll_create(5);
 
     struct epoll_event evReg;
@@ -335,11 +330,11 @@ int Poller::run(int port) {
     }
     {/* start workers*/
         for (int i = 0; i < this->maxWorker; ++i) {
-            workThreads.emplace_back(Poller::workerThreadCB, this, i);
+            workThreads.emplace_back(std::thread([=]{this->workerThreadCB(i);}));
         }
     }
     {/* start listen*/
-        listen_thread = std::thread(Poller::listenThreadCB, this, port);
+        listen_thread = std::thread([=]{this->listenThreadCB(port);});
     }
     {/* wait exit*/
         listen_thread.join();
