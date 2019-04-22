@@ -22,9 +22,9 @@ void Poller::workerThreadCB(int pollIndex) {
     HANDLE hIOCP = (HANDLE) iocps[pollIndex];
     BOOL bSuccess = FALSE;
     int nRet = 0;
-    LPWSAOVERLAPPED lpOverlapped = NULL;
-    PER_SOCKET_CONTEXT *lpPerSocketContextNULL = NULL;
-    PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
+    LPWSAOVERLAPPED lpOverlapped = nullptr;
+    PER_SOCKET_CONTEXT *lpPerSocketContextnullptr = nullptr;
+    PER_SOCKET_CONTEXT *lpPerSocketContext = nullptr;
     WSABUF buffRecv;
     WSABUF buffSend;
     DWORD dwRecvNumBytes = 0;
@@ -34,13 +34,13 @@ void Poller::workerThreadCB(int pollIndex) {
 
     while (TRUE) {
         bSuccess = GetQueuedCompletionStatus(hIOCP, &dwIoSize,
-                                             (PDWORD_PTR) &lpPerSocketContextNULL,
+                                             (PDWORD_PTR) &lpPerSocketContextnullptr,
                                              (LPOVERLAPPED *) &lpOverlapped,
                                              INFINITE);
         if (!bSuccess)
             printf("GetQueuedCompletionStatus() failed: %d\n", GetLastError());
         lpPerSocketContext = (PER_SOCKET_CONTEXT *) lpOverlapped;
-        if (lpPerSocketContext == NULL) {
+        if (lpPerSocketContext == nullptr) {
             return;
         }
 
@@ -70,7 +70,7 @@ void Poller::workerThreadCB(int pollIndex) {
 
 
                     nRet = WSARecv(lpPerSocketContext->sessionId, &buffRecv, 1,
-                                   &dwRecvNumBytes, &dwFlags, &lpPerSocketContext->Overlapped, NULL);
+                                   &dwRecvNumBytes, &dwFlags, &lpPerSocketContext->Overlapped, nullptr);
                     if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
                         printf("WSARecv() failed: %d\n", WSAGetLastError());
                         this->CloseClient(lpPerSocketContext, FALSE);
@@ -117,14 +117,14 @@ int Poller::connect(std::string ip, std::string port) {
                                  &pfnConnectEx,
                                  sizeof(pfnConnectEx),
                                  &dwBytesRet,
-                                 NULL,
-                                 NULL))
+                                 nullptr,
+                                 nullptr))
         std::cout << "ERR:xp" << std::endl;
 
     PER_SOCKET_CONTEXT *iocp_connect_context = (PER_SOCKET_CONTEXT *) xmalloc(sizeof(PER_SOCKET_CONTEXT));
     memset(iocp_connect_context, 0, sizeof(PER_SOCKET_CONTEXT));
     iocp_connect_context->IOOperation = RWMOD::ClientIoConnect;
-    iocp_connect_context->Overlapped.hEvent = NULL;
+    iocp_connect_context->Overlapped.hEvent = nullptr;
 
     sockaddr_in addr;
     memset(&addr, 0, sizeof(sockaddr_in));
@@ -142,7 +142,7 @@ int Poller::connect(std::string ip, std::string port) {
     }
 
 
-    PVOID lpSendBuffer = NULL;
+    PVOID lpSendBuffer = nullptr;
     DWORD dwSendDataLength = 0;
     DWORD dwBytesSent = 0;
     WINBOOL bResult = pfnConnectEx(sock,
@@ -175,7 +175,7 @@ int Poller::continueSendMsg(uint64_t sessionId) {
     int dwFlags = 0;
     DWORD dwSendNumBytes = 0;
     int nRet = WSASend(lpPerSocketContext->sessionId, &lpPerSocketContext->wsabuf, 1,
-                       &dwSendNumBytes, dwFlags, &(lpPerSocketContext->Overlapped), NULL);
+                       &dwSendNumBytes, dwFlags, &(lpPerSocketContext->Overlapped), nullptr);
     if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
         printf("WSASend() failed: %d\n", WSAGetLastError());
         this->CloseClient(lpPerSocketContext, FALSE);
@@ -191,13 +191,13 @@ int Poller::closeSession(uint64_t sessionId) {
 void Poller::listenThreadCB(int port) {
 
     SOCKET sdAccept = INVALID_SOCKET;
-    PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
+    PER_SOCKET_CONTEXT *lpPerSocketContext = nullptr;
     DWORD dwRecvNumBytes = 0;
     DWORD dwFlags = 0;
     int nRet = 0;
 
     while (true) {
-        sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
+        sdAccept = WSAAccept(g_sdListen, nullptr, nullptr, nullptr, 0);
 
         if (sdAccept == SOCKET_ERROR) {
             printf("WSAAccept() failed: %d\n", WSAGetLastError());
@@ -206,7 +206,7 @@ void Poller::listenThreadCB(int port) {
         this->onAccept(sdAccept, Addr());
         int workerId = sdAccept / 4 % maxWorker;
         lpPerSocketContext = UpdateCompletionPort(workerId, sdAccept, ClientIoRead, TRUE);
-        if (lpPerSocketContext == NULL)
+        if (lpPerSocketContext == nullptr)
             exit(-16);
 
 
@@ -217,7 +217,7 @@ void Poller::listenThreadCB(int port) {
             break;
         nRet = WSARecv(sdAccept, &(lpPerSocketContext->wsabuf),
                        1, &dwRecvNumBytes, &dwFlags,
-                       &(lpPerSocketContext->Overlapped), NULL);
+                       &(lpPerSocketContext->Overlapped), nullptr);
         if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
             printf("WSARecv() Failed: %d\n", WSAGetLastError());
             CloseClient(lpPerSocketContext, FALSE);
@@ -232,7 +232,7 @@ void Poller::listenThreadCB(int port) {
 
     for (auto &ipcpsE:iocps) {
         if (ipcpsE) {
-            PostQueuedCompletionStatus(ipcpsE, 0, 0, NULL);
+            PostQueuedCompletionStatus(ipcpsE, 0, 0, nullptr);
         }
     }
 
@@ -241,7 +241,7 @@ void Poller::listenThreadCB(int port) {
     for (auto &ipcpsE:iocps) {
         if (ipcpsE) {
             CloseHandle(ipcpsE);
-            ipcpsE = NULL;
+            ipcpsE = nullptr;
         }
     }
 
@@ -274,8 +274,8 @@ int Poller::run(int port) {
     {/*create pollers*/
         iocps.resize(maxWorker);
         for (auto &E:iocps) {
-            E = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
-            if (E == NULL) {
+            E = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);
+            if (E == nullptr) {
                 printf("CreateIoCompletionPort() failed to create I/O completion port: %d\n",
                        GetLastError());
                 exit(-16);
@@ -284,7 +284,7 @@ int Poller::run(int port) {
     }
 
     {/* start listen*/
-        if (!CreateListenSocket())
+        if (!createListenSocket(port))
             exit(-16);
     }
     {/* start workers*/
@@ -308,30 +308,29 @@ int Poller::run(int port) {
     return 0;
 }
 
-bool Poller::CreateListenSocket() {
+bool Poller::createListenSocket(int port) {
 
     int nRet = 0;
     int nZero = 0;
     struct addrinfo hints = {0};
-    struct addrinfo *addrlocal = NULL;
+    struct addrinfo *addrlocal = nullptr;
 
     hints.ai_flags = AI_PASSIVE;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_IP;
-
-    if (getaddrinfo(NULL, g_Port, &hints, &addrlocal) != 0) {
+    if (getaddrinfo(nullptr, std::to_string(port).c_str(), &hints, &addrlocal) != 0) {
         printf("getaddrinfo() failed with error %d\n", WSAGetLastError());
         return (FALSE);
     }
 
-    if (addrlocal == NULL) {
+    if (addrlocal == nullptr) {
         printf("getaddrinfo() failed to resolve/convert the interface\n");
         return (FALSE);
     }
 
     g_sdListen = WSASocket(addrlocal->ai_family, addrlocal->ai_socktype, addrlocal->ai_protocol,
-                           NULL, 0, WSA_FLAG_OVERLAPPED);
+                           nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (g_sdListen == INVALID_SOCKET) {
         printf("WSASocket(g_sdListen) failed: %d\n", WSAGetLastError());
         return (FALSE);
@@ -411,24 +410,24 @@ bool Poller::CreateListenSocket() {
 PER_SOCKET_CONTEXT *Poller::UpdateCompletionPort(int workerId, SOCKET sd, RWMOD ClientIo,
                                                  BOOL bAddToList) {
 
-    PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
+    PER_SOCKET_CONTEXT *lpPerSocketContext = nullptr;
 
 
     lpPerSocketContext = CtxtAllocate(sd, RWMOD::ClientIoWrite);
-    if (lpPerSocketContext == NULL)
-        return (NULL);
+    if (lpPerSocketContext == nullptr)
+        return (nullptr);
 
     lpPerSocketContext = CtxtAllocate(sd, RWMOD::ClientIoRead);
-    if (lpPerSocketContext == NULL)
-        return (NULL);
+    if (lpPerSocketContext == nullptr)
+        return (nullptr);
 
 
     HANDLE iocp = iocps[workerId];
-    iocp = CreateIoCompletionPort((HANDLE) sd, iocp, (DWORD_PTR) NULL, 0);
-    if (iocp == NULL) {
+    iocp = CreateIoCompletionPort((HANDLE) sd, iocp, (DWORD_PTR) nullptr, 0);
+    if (iocp == nullptr) {
         printf("CreateIoCompletionPort() failed: %d\n", GetLastError());
         //xfree(lpPerSocketContext);
-        return (NULL);
+        return (nullptr);
     }
 
     //TODO if (bAddToList) CtxtListAddTo(lpPerSocketContext);
@@ -457,9 +456,9 @@ void Poller::CloseClient(PER_SOCKET_CONTEXT *lpPerSocketContext,
         closesocket(lpPerSocketContext->sessionId);
         lpPerSocketContext->sessionId = INVALID_SOCKET;
         //TODO: remove online list
-        lpPerSocketContext = NULL;
+        lpPerSocketContext = nullptr;
     } else {
-        printf("CloseClient: lpPerSocketContext is NULL\n");
+        printf("CloseClient: lpPerSocketContext is nullptr\n");
     }
     xxx->unlock();
     return;
@@ -481,9 +480,9 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
             lpPerSocketContext->Overlapped.InternalHigh = 0;
             lpPerSocketContext->Overlapped.Offset = 0;
             lpPerSocketContext->Overlapped.OffsetHigh = 0;
-            lpPerSocketContext->Overlapped.hEvent = NULL;
+            lpPerSocketContext->Overlapped.hEvent = nullptr;
             lpPerSocketContext->IOOperation = ClientIO;
-            //lpPerSocketContext->pIOContextForward = NULL;
+            //lpPerSocketContext->pIOContextForward = nullptr;
             lpPerSocketContext->nTotalBytes = 0;
             lpPerSocketContext->nSentBytes = 0;
             lpPerSocketContext->wsabuf.buf = lpPerSocketContext->Buffer;
@@ -507,9 +506,9 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
             lpPerSocketContext->Overlapped.InternalHigh = 0;
             lpPerSocketContext->Overlapped.Offset = 0;
             lpPerSocketContext->Overlapped.OffsetHigh = 0;
-            lpPerSocketContext->Overlapped.hEvent = NULL;
+            lpPerSocketContext->Overlapped.hEvent = nullptr;
             lpPerSocketContext->IOOperation = ClientIO;
-            //lpPerSocketContext->pIOContextForward = NULL;
+            //lpPerSocketContext->pIOContextForward = nullptr;
             lpPerSocketContext->nTotalBytes = 0;
             lpPerSocketContext->nSentBytes = 0;
             lpPerSocketContext->wsabuf.buf = lpPerSocketContext->Buffer;
@@ -524,7 +523,7 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
         return (lpPerSocketContext);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 

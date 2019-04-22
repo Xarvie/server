@@ -51,7 +51,7 @@ public:
     virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
     int continueSendMsg(uint64_t sessionId);
     void sendMsg(uint64_t sessionId, const Msg &msg);
-    bool CreateListenSocket();
+    bool createListenSocket(int port);
     int connect(std::string ip, std::string port);
 
     void workerThreadCB(int pollIndex);
@@ -65,7 +65,6 @@ public:
 
     int run(int port);
 
-    const char *g_Port = "9876";
     bool serverStop = false;
     bool g_bVerbose = false;
     std::vector<HANDLE> iocps;
