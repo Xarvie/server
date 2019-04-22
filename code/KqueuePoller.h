@@ -19,7 +19,6 @@ public:
 	int type; /*0:null 1:accept 2:connect*/
     int64_t preHeartBeats = 0;
 
-    Poller * spider;
 	MessageBuffer writeBuffer;
     MessageBuffer readBuffer;
     const int suggested_capacity = BUFFER_SIZE;
