@@ -32,9 +32,9 @@ Poller::~Poller()
     {
         this->acceptTaskQueue[i].enqueue(connectSockInfo);
     }
-    if(this->listen_thread.joinable())
+    if(this->listenThread.joinable())
     {
-        this->listen_thread.join();
+        this->listenThread.join();
     }
     for (int c = 0; c < CONN_MAXFD; ++c)
     {
@@ -306,7 +306,7 @@ int Poller::run(int port)
     for(int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
         this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
 
-    //listen_thread = std::thread(initThreadCB, this, port);//TODO
+    //listenThread = std::thread(initThreadCB, this, port);//TODO
 
 
     struct event_data server = {

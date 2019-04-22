@@ -69,7 +69,7 @@ int lisSock;
 
 std::vector<std::thread> worker;
 std::list<std::thread> connectThreads;
-std::thread listen_thread;
+std::thread listenThread;
 
 
 moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;

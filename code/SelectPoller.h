@@ -73,8 +73,7 @@ public:
     std::vector<int> epolls;
     uint64_t lisSock;
     std::vector<std::thread> worker;
-    std::thread listen_thread;
-    std::thread init_thread;
+    std::thread listenThread;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
 

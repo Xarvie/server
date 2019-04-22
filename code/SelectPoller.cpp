@@ -228,13 +228,13 @@ int Poller::run(int port) {
 #endif
     taskQueue.resize(maxWorker);
 
-    this->listen_thread = std::thread(Poller::listenThreadCB, this, port);
+    this->listenThread = std::thread(Poller::listenThreadCB, this, port);
 
     for (int i = 0; i < maxWorker; i++) {
         worker.emplace_back(std::thread(Poller::workerThreadCB, this, i));
     }
 
-    this->listen_thread.join();
+    this->listenThread.join();
     for (auto &E:worker) {
         E.join();
     }

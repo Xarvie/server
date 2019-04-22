@@ -7,15 +7,14 @@
 
 
 Poller::~Poller() {
-    init_thread.join();
     int i = 0, c = 0;
 
     for (i = 0; i < this->maxWorker; ++i) {
         if (workThreads[i].joinable())
             workThreads[i].join();
     }
-    if (listen_thread.joinable())
-        listen_thread.join();
+    if (listenThread.joinable())
+        listenThread.join();
 
     struct epoll_event evReg;
 
@@ -334,10 +333,10 @@ int Poller::run(int port) {
         }
     }
     {/* start listen*/
-        listen_thread = std::thread([=]{this->listenThreadCB(port);});
+        listenThread = std::thread([=]{this->listenThreadCB(port);});
     }
     {/* wait exit*/
-        listen_thread.join();
+        listenThread.join();
         for (auto &E: this->workThreads) {
             E.join();
         }
