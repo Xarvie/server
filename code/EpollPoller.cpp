@@ -322,7 +322,7 @@ int Poller::run(int port) {
     }
     {/* init queue  */
         taskQueue.resize(this->maxWorker);
-        g_bEndServer = false;
+        serverStop = false;
     }
     {/* create pollers*/
         epolls.resize(maxWorker);

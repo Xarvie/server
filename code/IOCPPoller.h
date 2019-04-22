@@ -54,8 +54,8 @@ public:
     bool CreateListenSocket();
     int connect(std::string ip, std::string port);
 
-    static DWORD WorkerThread(Poller *self, LPVOID WorkContext);
-
+    void workerThreadCB(int pollIndex);
+    void listenThreadCB(int port);
     PER_SOCKET_CONTEXT* UpdateCompletionPort(int workerId, SOCKET s, RWMOD ClientIo, BOOL bAddToList);
     int closeSession(uint64_t sessionId);
 
@@ -66,7 +66,7 @@ public:
     int run(int port);
 
     const char *g_Port = "9876";
-    bool g_bEndServer = false;
+    bool serverStop = false;
     bool g_bVerbose = false;
     std::vector<HANDLE> iocps;
     SOCKET g_sdListen = INVALID_SOCKET;

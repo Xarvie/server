@@ -69,7 +69,7 @@ std::vector<Session*> sessions;
     std::thread listen_thread;
     std::thread init_thread;
 	std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
-	bool g_bEndServer = 0;
+	bool serverStop = 0;
 };
 
 #endif /* SERVER_EPOLLPOLL_H_ */

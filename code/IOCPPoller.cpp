@@ -1,4 +1,3 @@
-
 #include "SystemReader.h"
 
 #if defined(OS_WINDOWS) && !defined(SELECT_SERVER)
@@ -18,9 +17,9 @@ void Poller::sendMsg(uint64_t sessionId, const Msg &msg) {
 
 }
 
-DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
+void Poller::workerThreadCB(int pollIndex) {
 
-    HANDLE hIOCP = (HANDLE) WorkThreadContext;
+    HANDLE hIOCP = (HANDLE) iocps[pollIndex];
     BOOL bSuccess = FALSE;
     int nRet = 0;
     LPWSAOVERLAPPED lpOverlapped = NULL;
@@ -42,15 +41,15 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
             printf("GetQueuedCompletionStatus() failed: %d\n", GetLastError());
         lpPerSocketContext = (PER_SOCKET_CONTEXT *) lpOverlapped;
         if (lpPerSocketContext == NULL) {
-            return (0);
+            return;
         }
 
-        if (self->g_bEndServer) {
-            return (0);
+        if (this->serverStop) {
+            return;
         }
 
         if (!bSuccess || (bSuccess && (dwIoSize == 0))) {
-            self->CloseClient(lpPerSocketContext, FALSE);
+            this->CloseClient(lpPerSocketContext, FALSE);
             continue;
         }
 
@@ -58,7 +57,7 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
         switch (lpPerSocketContext->IOOperation) {
             case ClientIoRead: {
                 Msg msg;
-                self->sessions[sessionId]->iocp_context;
+                this->sessions[sessionId]->iocp_context;
                 msg.buff = (unsigned char *) lpPerSocketContext->wsabuf.buf;
                 msg.len = dwIoSize;
                 {
@@ -74,14 +73,14 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
                                    &dwRecvNumBytes, &dwFlags, &lpPerSocketContext->Overlapped, NULL);
                     if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
                         printf("WSARecv() failed: %d\n", WSAGetLastError());
-                        self->CloseClient(lpPerSocketContext, FALSE);
-                    } else if (self->g_bVerbose) {
+                        this->CloseClient(lpPerSocketContext, FALSE);
+                    } else if (this->g_bVerbose) {
                         printf("WorkerThread %d: Socket(%d) Send completed (%d bytes), Recv posted\n",
                                GetCurrentThreadId(), lpPerSocketContext->sessionId, dwIoSize);
                     }
 
                 }
-                self->onReadMsg(sessionId, msg);
+                this->onReadMsg(sessionId, msg);
                 break;
             }
             case ClientIoWrite:
@@ -89,12 +88,12 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
                 lpPerSocketContext->IOOperation = ClientIoWrite;
                 lpPerSocketContext->nSentBytes += dwIoSize;
 
-                self->sessions[sessionId]->writeBuffer.erase(dwIoSize);
+                this->sessions[sessionId]->writeBuffer.erase(dwIoSize);
 
-                self->onWriteBytes(lpPerSocketContext->sessionId, dwIoSize);//TODO x
+                this->onWriteBytes(lpPerSocketContext->sessionId, dwIoSize);//TODO x
 
-                if (self->sessions[sessionId]->writeBuffer.size > 0)
-                    self->continueSendMsg(sessionId);
+                if (this->sessions[sessionId]->writeBuffer.size > 0)
+                    this->continueSendMsg(sessionId);
 
                 break;
             case ClientIoConnect: {
@@ -104,7 +103,7 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
 
         }
     }
-    return (0);
+    return;
 }
 
 int Poller::connect(std::string ip, std::string port) {
@@ -189,6 +188,74 @@ int Poller::closeSession(uint64_t sessionId) {
     return 0;
 }
 
+void Poller::listenThreadCB(int port) {
+
+    SOCKET sdAccept = INVALID_SOCKET;
+    PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
+    DWORD dwRecvNumBytes = 0;
+    DWORD dwFlags = 0;
+    int nRet = 0;
+
+    while (true) {
+        sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
+
+        if (sdAccept == SOCKET_ERROR) {
+            printf("WSAAccept() failed: %d\n", WSAGetLastError());
+            exit(-16);
+        }
+        this->onAccept(sdAccept, Addr());
+        int workerId = sdAccept / 4 % maxWorker;
+        lpPerSocketContext = UpdateCompletionPort(workerId, sdAccept, ClientIoRead, TRUE);
+        if (lpPerSocketContext == NULL)
+            exit(-16);
+
+
+        sessions[sdAccept]->sessionId = sdAccept;
+        sessions[sdAccept]->iocp_context = lpPerSocketContext;
+
+        if (serverStop)
+            break;
+        nRet = WSARecv(sdAccept, &(lpPerSocketContext->wsabuf),
+                       1, &dwRecvNumBytes, &dwFlags,
+                       &(lpPerSocketContext->Overlapped), NULL);
+        if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
+            printf("WSARecv() Failed: %d\n", WSAGetLastError());
+            CloseClient(lpPerSocketContext, FALSE);
+        }
+    }
+
+
+    for (auto &E: workThreads) {
+        E.join();
+    }
+
+
+    for (auto &ipcpsE:iocps) {
+        if (ipcpsE) {
+            PostQueuedCompletionStatus(ipcpsE, 0, 0, NULL);
+        }
+    }
+
+    //TODO CtxtListFree();
+
+    for (auto &ipcpsE:iocps) {
+        if (ipcpsE) {
+            CloseHandle(ipcpsE);
+            ipcpsE = NULL;
+        }
+    }
+
+    if (g_sdListen != INVALID_SOCKET) {
+        closesocket(g_sdListen);
+        g_sdListen = INVALID_SOCKET;
+    }
+
+    if (sdAccept != INVALID_SOCKET) {
+        closesocket(sdAccept);
+        sdAccept = INVALID_SOCKET;
+    }
+}
+
 int Poller::run(int port) {
     {/* init */
         WSADATA wsaData;
@@ -202,7 +269,7 @@ int Poller::run(int port) {
     }
     {/* init queue  */
         taskQueue.resize(this->maxWorker);
-        g_bEndServer = FALSE;
+        serverStop = FALSE;
     }
     {/*create pollers*/
         iocps.resize(maxWorker);
@@ -220,86 +287,24 @@ int Poller::run(int port) {
         if (!CreateListenSocket())
             exit(-16);
     }
-    {/* start listen*/
-        listenThread = std::thread([&] {
-            for (int i = 0; i < maxWorker; i++) {
-                workThreads.emplace_back(WorkerThread, this, iocps[i]);
-            }
-
-            SOCKET sdAccept = INVALID_SOCKET;
-            PER_SOCKET_CONTEXT *lpPerSocketContext = NULL;
-            DWORD dwRecvNumBytes = 0;
-            DWORD dwFlags = 0;
-            int nRet = 0;
-
-            while (true) {
-                sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
-
-                if (sdAccept == SOCKET_ERROR) {
-                    printf("WSAAccept() failed: %d\n", WSAGetLastError());
-                    exit(-16);
-                }
-                this->onAccept(sdAccept, Addr());
-                int workerId = sdAccept / 4 % maxWorker;
-                lpPerSocketContext = UpdateCompletionPort(workerId, sdAccept, ClientIoRead, TRUE);
-                if (lpPerSocketContext == NULL)
-                    exit(-16);
-
-
-                sessions[sdAccept]->sessionId = sdAccept;
-                sessions[sdAccept]->iocp_context = lpPerSocketContext;
-
-                if (g_bEndServer)
-                    break;
-                nRet = WSARecv(sdAccept, &(lpPerSocketContext->wsabuf),
-                               1, &dwRecvNumBytes, &dwFlags,
-                               &(lpPerSocketContext->Overlapped), NULL);
-                if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                    printf("WSARecv() Failed: %d\n", WSAGetLastError());
-                    CloseClient(lpPerSocketContext, FALSE);
-                }
-            }
-
-
-            for (auto &E: workThreads) {
-                E.join();
-            }
-
-
-            for (auto &ipcpsE:iocps) {
-                if (ipcpsE) {
-                    PostQueuedCompletionStatus(ipcpsE, 0, 0, NULL);
-                }
-            }
-
-            //TODO CtxtListFree();
-
-            for (auto &ipcpsE:iocps) {
-                if (ipcpsE) {
-                    CloseHandle(ipcpsE);
-                    ipcpsE = NULL;
-                }
-            }
-
-            if (g_sdListen != INVALID_SOCKET) {
-                closesocket(g_sdListen);
-                g_sdListen = INVALID_SOCKET;
-            }
-
-            if (sdAccept != INVALID_SOCKET) {
-                closesocket(sdAccept);
-                sdAccept = INVALID_SOCKET;
-            }
-
-
-        });
+    {/* start workers*/
+        for (int i = 0; i < this->maxWorker; ++i) {
+            workThreads.emplace_back(std::thread([=] { this->workerThreadCB(i); }));
+        }
     }
-    {/*free*/
+    {/* start listen*/
+        this->listenThread = std::thread([=] { this->listenThreadCB(port); });
+    }
+    {/*wait exit */
         listenThread.join();
+        for (auto &E: this->workThreads) {
+            E.join();
+        }
+    }
+    {/*exit*/
         delete xxx;
         WSACleanup();
     }
-
     return 0;
 }
 
