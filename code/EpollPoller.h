@@ -46,6 +46,7 @@ public:
 	void listenThread(int port);
 	int listen(int port);
 	int connect(const char * ip, short port);
+	bool createListenSocket(int port);
 	int run(int port);
     void disconnect(int fd);
 
@@ -64,10 +65,11 @@ std::vector<Session*> sessions;
 	int maxWorker = 4;
 	std::vector<int> epolls;
     int lisSock;
-    std::vector<std::thread> worker;
+    std::vector<std::thread> workThreads;
     std::thread listen_thread;
     std::thread init_thread;
 	std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
+	bool g_bEndServer = 0;
 };
 
 #endif /* SERVER_EPOLLPOLL_H_ */

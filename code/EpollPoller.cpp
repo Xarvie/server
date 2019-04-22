@@ -11,8 +11,8 @@ Poller::~Poller() {
     int i = 0, c = 0;
 
     for (i = 0; i < this->maxWorker; ++i) {
-        if (worker[i].joinable())
-            worker[i].join();
+        if (workThreads[i].joinable())
+            workThreads[i].join();
     }
     if (listen_thread.joinable())
         listen_thread.join();
@@ -282,27 +282,7 @@ void Poller::listenThread(int port) {
     close(lisEpfd);
 }
 
-
-int Poller::run(int port) {
-    {/* init */
-
-    }
-    {/* init queue  */
-        taskQueue.resize(this->maxWorker);
-        g_bEndServer = FALSE;
-    }
-
-
-    epolls.resize(maxWorker);
-    for (int i = 0; i < this->maxWorker; i++)
-        this->taskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
-
-
-    int epi;
-    for (epi = 0; epi < this->maxWorker; ++epi) {
-        epolls[epi] = epoll_create(20);
-    }
-
+bool Poller::createListenSocket(int port){
     lisSock = socket(AF_INET, SOCK_STREAM, 0);
 
     int reuse = 1;
@@ -325,21 +305,51 @@ int Poller::run(int port) {
     lisAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(lisSock, (struct sockaddr *) &lisAddr, sizeof(lisAddr)) == -1) {
-        perror("bind");
-        return -1;
+        printf("bind");
+        return false;
     }
 
-    ::listen(lisSock, 4096);
-
-
-    int i;
-
-    for (i = 0; i < this->maxWorker; ++i) {
-        worker.emplace_back(Poller::workerThreadCB, this, i);
+    if(::listen(lisSock, 4096) <0){
+        printf("listen");
+        return false;
     }
 
-    listen_thread = std::thread(Poller::listenThreadCB, this, port);
+    return true;
+}
+int Poller::run(int port) {
+    {/* init */
 
+    }
+    {/* init queue  */
+        taskQueue.resize(this->maxWorker);
+        g_bEndServer = false;
+    }
+    {/* create pollers*/
+        epolls.resize(maxWorker);
+        for (int epi = 0; epi < this->maxWorker; ++epi) {
+            epolls[epi] = epoll_create(20);
+        }
+    }
+    {/* create listen*/
+        this->createListenSocket(port);
+    }
+    {/* start workers*/
+        for (int i = 0; i < this->maxWorker; ++i) {
+            workThreads.emplace_back(Poller::workerThreadCB, this, i);
+        }
+    }
+    {/* start listen*/
+        listen_thread = std::thread(Poller::listenThreadCB, this, port);
+    }
+    {/* wait exit*/
+        listen_thread.join();
+        for (auto &E: this->workThreads) {
+            E.join();
+        }
+    }
+    {/*exit*/
+        close(lisSock);
+    }
     return 0;
 }
 
