@@ -3,7 +3,6 @@
 
 #include "KqueuePoller.h"
 
-#define BUFFER_SIZE 1024
 #define on_error(...) { fprintf(stderr, __VA_ARGS__); fflush(stderr); exit(1); }
 
 int Session::cbRead(int readNum)
