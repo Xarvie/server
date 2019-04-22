@@ -102,11 +102,7 @@ void Poller::closeConnection(Session *conn) {
 
 }
 
-void Poller::workerThreadCB(Poller *thisPtr, int index) {
-    thisPtr->workerThread(index);
-}
-
-void Poller::workerThread(int index) {
+void Poller::workerThreadCB(int index) {
     moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[index];
     sockInfo event;
     std::vector<uint64_t> acceptClientFds;
@@ -228,14 +224,16 @@ int Poller::run(int port) {
 #endif
     taskQueue.resize(maxWorker);
 
-    this->listenThread = std::thread(Poller::listenThreadCB, this, port);
-
-    for (int i = 0; i < maxWorker; i++) {
-        worker.emplace_back(std::thread(Poller::workerThreadCB, this, i));
+    {/* start workers*/
+        for (int i = 0; i < this->maxWorker; ++i) {
+            workThreads.emplace_back(std::thread([=] { this->workerThreadCB(i); }));
+        }
     }
-
+    {/* start listen*/
+        this->listenThread = std::thread([=] { this->listenThreadCB(port); });
+    }
     this->listenThread.join();
-    for (auto &E:worker) {
+    for (auto &E:workThreads) {
         E.join();
     }
 
@@ -247,11 +245,7 @@ Poller::~Poller() {
 
 }
 
-void Poller::listenThreadCB(Poller *thisPtr, int port) {
-    thisPtr->listenThread(port);
-}
-
-void Poller::listenThread(int port) {
+void Poller::listenThreadCB(int port) {
 
     this->lisSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 

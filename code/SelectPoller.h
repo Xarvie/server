@@ -47,10 +47,8 @@ public:
     int handleReadEvent(Session* conn);
     int handleWriteEvent(Session* conn);
     void closeConnection(Session* conn);
-    static void workerThreadCB(Poller* thisPtr, int epindex);
-    static void listenThreadCB(Poller* thisPtr, int port);
-    void workerThread(int epindex);
-    void listenThread(int port);
+    void workerThreadCB(int epindex);
+    void listenThreadCB(int port);
     int listen(int port);
     int connect(const char * ip, short port);
     int run(int port);
@@ -69,7 +67,7 @@ public:
     int maxWorker = 4;
     std::vector<int> epolls;
     uint64_t lisSock;
-    std::vector<std::thread> worker;
+    std::vector<std::thread> workThreads;
     std::thread listenThread;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
