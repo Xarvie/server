@@ -65,10 +65,7 @@ public:
         REQ_SHUTDOWN,
         REQ_CONNECT
     };
-#define CONN_MAXFD 65535
     std::vector<Session*> sessions;
-#define EPOLL_NUM 8
-
     int maxWorker = 4;
     std::vector<int> epolls;
     uint64_t lisSock;

@@ -4,9 +4,6 @@
 
 #include "IOCPPoller.h"
 
-
-int x = 0;
-
 void Poller::sendMsg(uint64_t sessionId, const Msg &msg) {
     if (sessions[sessionId]->writeBuffer.size > 0) {
         sessions[sessionId]->writeBuffer.push_back(msg.len, msg.buff);
@@ -14,7 +11,6 @@ void Poller::sendMsg(uint64_t sessionId, const Msg &msg) {
         sessions[sessionId]->writeBuffer.push_back(msg.len, msg.buff);
         this->continueSendMsg(sessionId);
     }
-
 }
 
 void Poller::workerThreadCB(int pollIndex) {
@@ -74,9 +70,6 @@ void Poller::workerThreadCB(int pollIndex) {
                     if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
                         printf("WSARecv() failed: %d\n", WSAGetLastError());
                         this->CloseClient(lpPerSocketContext, FALSE);
-                    } else if (this->g_bVerbose) {
-                        printf("WorkerThread %d: Socket(%d) Send completed (%d bytes), Recv posted\n",
-                               GetCurrentThreadId(), lpPerSocketContext->sessionId, dwIoSize);
                     }
 
                 }
@@ -431,9 +424,6 @@ PER_SOCKET_CONTEXT *Poller::UpdateCompletionPort(int workerId, SOCKET sd, RWMOD 
     }
 
     //TODO if (bAddToList) CtxtListAddTo(lpPerSocketContext);
-
-    if (g_bVerbose)
-        printf("UpdateCompletionPort: Socket(%d) added to IOCP\n", lpPerSocketContext->sessionId);
 
     return (lpPerSocketContext);
 }

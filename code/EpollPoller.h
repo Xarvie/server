@@ -58,8 +58,8 @@ public:
 		REQ_SHUTDOWN,
 		REQ_CONNECT
 	};
-#define CONN_MAXFD 65535
-std::vector<Session*> sessions;
+
+    std::vector<Session*> sessions;
 
 	int maxWorker = 4;
 	std::vector<int> epolls;

@@ -21,8 +21,6 @@ Poller::~Poller() {
     for (c = 0; c < CONN_MAXFD; ++c) {
         Session *conn = sessions[c];
 //        if (conn->type) {//TODO
-//            epoll_ctl(epolls[conn->rrindex % EPOLL_NUM], EPOLL_CTL_DEL, conn->sessionId, &evReg);
-//            close(conn->sessionId);
 //        }
         sessions[c]->readBuffer.destroy();
         sessions[c]->writeBuffer.destroy();

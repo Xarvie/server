@@ -76,9 +76,7 @@ moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
 moodycamel::ConcurrentQueue<sockInfo> eventQueue;
 std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
 moodycamel::ConcurrentQueue<Msg> msgQueue;
-
-#define CONN_MAXFD 65535
-    std::vector<Session*> sessions;
+std::vector<Session*> sessions;
 
 
 public:

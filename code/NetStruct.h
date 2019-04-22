@@ -45,8 +45,8 @@
 #include "Queue.h"
 #include "Buffer.h"
 
-
-#define MAX_BUFF_SIZE       8192
+#define CONN_MAXFD 65535
+#define MAX_BUFF_SIZE 8192
 #define xmalloc malloc
 #define xfree free
 

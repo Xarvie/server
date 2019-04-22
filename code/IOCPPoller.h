@@ -66,7 +66,6 @@ public:
     int run(int port);
 
     bool serverStop = false;
-    bool g_bVerbose = false;
     std::vector<HANDLE> iocps;
     SOCKET g_sdListen = INVALID_SOCKET;
     int maxWorker = 4;
