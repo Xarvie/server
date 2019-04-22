@@ -1,50 +1,11 @@
-//
-// Created by xarvie on 2019-04-19.
-//
 
+#include "SystemReader.h"
+
+#if defined(SELECT_SERVER)
 #ifndef SERVER_SELECTSERVER_H
 #define SERVER_SELECTSERVER_H
 
-#include "Buffer.h"
-#include <vector>
-#include <iostream>
-#include <string>
-#include <list>
-#include "Queue.h"
-#include "Spider.h"
-
-#define MAX_BUFF_SIZE       8192
-
-#define xmalloc malloc
-#define xfree free
-
-class Poller;
-struct sockInfo
-{
-    //TODO move construct
-    unsigned short rrindex;
-    int port;
-    char ip[128];
-    int fd;
-    int ret;
-    char task;/*1:listen 2:connect 3:disconnect*/
-    char event;/*1 listen 2:connect*/
-};
-
-struct Addr {
-    std::string ip;
-    std::string port;
-};
-
-struct Msg {
-    int len;
-    unsigned char *buff;
-};
-
-union RawSocket {
-    int unixSocket;
-    void *windowsSocket = nullptr;
-};
+#include "NetStruct.h"
 
 class Session
 {
@@ -119,6 +80,5 @@ public:
 
 };
 
-
-
 #endif //SERVER_SELECTSERVER_H
+#endif

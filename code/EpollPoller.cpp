@@ -3,49 +3,9 @@
 
 #if defined(OS_LINUX) && !defined(SELECT_SERVER)
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-
-#include <string>
-#include <iostream>
-#include <list>
-#include <vector>
-#include <thread>
-#include <utility>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <signal.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <time.h>
-#include <netinet/tcp.h>
-#include <sys/epoll.h>
-
-#include "Spider.h"
-
-#include "NetStruct.h"
-/*
-Poller::Poller(int port) {
-
-    this->run(port);
-}
+#include "EpollPoller.h"
 
 
-Poller::Poller(Poller &&a)
-{
-    std::cout << "a" << std::endl;
-}
-
-Poller& Poller::operator = (Poller &&rhs) noexcept
-{
-    std::cout << "a" << std::endl;
-    return *this;
-}
-*/
 Poller::~Poller() {
     init_thread.join();
     int i = 0, c = 0;

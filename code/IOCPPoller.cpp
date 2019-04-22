@@ -12,23 +12,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-#define xmalloc malloc
-#define xfree   free
-
-#include <winsock2.h>
-#include <Ws2tcpip.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <strsafe.h>
-#include <thread>
-#include <vector>
-#include <mutex>
-#include "Spider.h"
-#include "Queue.h"
+#include "IOCPPoller.h"
 
 std::recursive_mutex *xxx;
-
-int myprintf(const char *lpFormat, ...);
 
 int x = 0;
 
@@ -67,7 +53,7 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
                                              (LPOVERLAPPED *) &lpOverlapped,
                                              INFINITE);
         if (!bSuccess)
-            myprintf("GetQueuedCompletionStatus() failed: %d\n", GetLastError());
+            printf("GetQueuedCompletionStatus() failed: %d\n", GetLastError());
         lpPerSocketContext = (PER_SOCKET_CONTEXT *) lpOverlapped;
         if (lpPerSocketContext == NULL) {
             return (0);
@@ -105,11 +91,11 @@ DWORD Poller::WorkerThread(Poller *self, LPVOID WorkThreadContext) {
                     nRet = WSARecv(lpPerSocketContext->sessionId, &buffRecv, 1,
                                    &dwRecvNumBytes, &dwFlags, &lpPerSocketContext->Overlapped, NULL);
                     if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                        myprintf("WSARecv() failed: %d\n", WSAGetLastError());
+                        printf("WSARecv() failed: %d\n", WSAGetLastError());
                         self->CloseClient(lpPerSocketContext, FALSE);
                     } else if (self->g_bVerbose) {
-                        myprintf("WorkerThread %d: Socket(%d) Send completed (%d bytes), Recv posted\n",
-                                 GetCurrentThreadId(), lpPerSocketContext->sessionId, dwIoSize);
+                        printf("WorkerThread %d: Socket(%d) Send completed (%d bytes), Recv posted\n",
+                               GetCurrentThreadId(), lpPerSocketContext->sessionId, dwIoSize);
                     }
 
                 }
@@ -234,7 +220,7 @@ int Poller::run(int port) {
     taskQueue.resize(this->maxWorker);
 
     if ((nRet = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0) {
-        myprintf("WSAStartup() failed: %d\n", nRet);
+        printf("WSAStartup() failed: %d\n", nRet);
         return -1;
     }
 
@@ -247,8 +233,8 @@ int Poller::run(int port) {
     for (auto &E:iocps) {
         E = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
         if (E == NULL) {
-            myprintf("CreateIoCompletionPort() failed to create I/O completion port: %d\n",
-                     GetLastError());
+            printf("CreateIoCompletionPort() failed to create I/O completion port: %d\n",
+                   GetLastError());
             exit(-16);
         }
     }
@@ -267,7 +253,7 @@ int Poller::run(int port) {
             sdAccept = WSAAccept(g_sdListen, NULL, NULL, NULL, 0);
 
             if (sdAccept == SOCKET_ERROR) {
-                myprintf("WSAAccept() failed: %d\n", WSAGetLastError());
+                printf("WSAAccept() failed: %d\n", WSAGetLastError());
                 exit(-16);
             }
             this->onAccept(sdAccept, Addr());
@@ -286,7 +272,7 @@ int Poller::run(int port) {
                            1, &dwRecvNumBytes, &dwFlags,
                            &(lpPerSocketContext->Overlapped), NULL);
             if (nRet == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                myprintf("WSARecv() Failed: %d\n", WSAGetLastError());
+                printf("WSARecv() Failed: %d\n", WSAGetLastError());
                 CloseClient(lpPerSocketContext, FALSE);
             }
         }
@@ -331,7 +317,7 @@ int Poller::run(int port) {
     return 0;
 }
 
-BOOL Poller::CreateListenSocket(void) {
+bool Poller::CreateListenSocket() {
 
     int nRet = 0;
     int nZero = 0;
@@ -344,31 +330,31 @@ BOOL Poller::CreateListenSocket(void) {
     hints.ai_protocol = IPPROTO_IP;
 
     if (getaddrinfo(NULL, g_Port, &hints, &addrlocal) != 0) {
-        myprintf("getaddrinfo() failed with error %d\n", WSAGetLastError());
+        printf("getaddrinfo() failed with error %d\n", WSAGetLastError());
         return (FALSE);
     }
 
     if (addrlocal == NULL) {
-        myprintf("getaddrinfo() failed to resolve/convert the interface\n");
+        printf("getaddrinfo() failed to resolve/convert the interface\n");
         return (FALSE);
     }
 
     g_sdListen = WSASocket(addrlocal->ai_family, addrlocal->ai_socktype, addrlocal->ai_protocol,
                            NULL, 0, WSA_FLAG_OVERLAPPED);
     if (g_sdListen == INVALID_SOCKET) {
-        myprintf("WSASocket(g_sdListen) failed: %d\n", WSAGetLastError());
+        printf("WSASocket(g_sdListen) failed: %d\n", WSAGetLastError());
         return (FALSE);
     }
 
     nRet = bind(g_sdListen, addrlocal->ai_addr, (int) addrlocal->ai_addrlen);
     if (nRet == SOCKET_ERROR) {
-        myprintf("bind() failed: %d\n", WSAGetLastError());
+        printf("bind() failed: %d\n", WSAGetLastError());
         return (FALSE);
     }
 
     nRet = listen(g_sdListen, 5);
     if (nRet == SOCKET_ERROR) {
-        myprintf("listen() failed: %d\n", WSAGetLastError());
+        printf("listen() failed: %d\n", WSAGetLastError());
         return (FALSE);
     }
 
@@ -388,7 +374,7 @@ BOOL Poller::CreateListenSocket(void) {
     nZero = 0;
     nRet = setsockopt(g_sdListen, SOL_SOCKET, SO_SNDBUF, (char *) &nZero, sizeof(nZero));
     if (nRet == SOCKET_ERROR) {
-        myprintf("setsockopt(SNDBUF) failed: %d\n", WSAGetLastError());
+        printf("setsockopt(SNDBUF) failed: %d\n", WSAGetLastError());
         return (FALSE);
     }
 
@@ -421,7 +407,7 @@ BOOL Poller::CreateListenSocket(void) {
 	nRet = setsockopt(g_sdListen, SOL_SOCKET, SO_LINGER,
 					  (char *)&lingerStruct, sizeof(lingerStruct) );
 	if( nRet == SOCKET_ERROR ) {
-		myprintf("setsockopt(SO_LINGER) failed: %d\n", WSAGetLastError());
+		printf("setsockopt(SO_LINGER) failed: %d\n", WSAGetLastError());
 		return(FALSE);
 	}
     */
@@ -449,7 +435,7 @@ PER_SOCKET_CONTEXT *Poller::UpdateCompletionPort(int workerId, SOCKET sd, RWMOD 
     HANDLE iocp = iocps[workerId];
     iocp = CreateIoCompletionPort((HANDLE) sd, iocp, (DWORD_PTR) NULL, 0);
     if (iocp == NULL) {
-        myprintf("CreateIoCompletionPort() failed: %d\n", GetLastError());
+        printf("CreateIoCompletionPort() failed: %d\n", GetLastError());
         //xfree(lpPerSocketContext);
         return (NULL);
     }
@@ -457,20 +443,20 @@ PER_SOCKET_CONTEXT *Poller::UpdateCompletionPort(int workerId, SOCKET sd, RWMOD 
     //TODO if (bAddToList) CtxtListAddTo(lpPerSocketContext);
 
     if (g_bVerbose)
-        myprintf("UpdateCompletionPort: Socket(%d) added to IOCP\n", lpPerSocketContext->sessionId);
+        printf("UpdateCompletionPort: Socket(%d) added to IOCP\n", lpPerSocketContext->sessionId);
 
     return (lpPerSocketContext);
 }
 
-VOID Poller::CloseClient(PER_SOCKET_CONTEXT *lpPerSocketContext,
+void Poller::CloseClient(PER_SOCKET_CONTEXT *lpPerSocketContext,
                          BOOL bGraceful) {
 
     xxx->lock();
 
     if (lpPerSocketContext) {
         if (g_bVerbose)
-            myprintf("CloseClient: Socket(%d) PER_SOCKET_CONTEXT closing (graceful=%s)\n",
-                     lpPerSocketContext->sessionId, (bGraceful ? "TRUE" : "FALSE"));
+            printf("CloseClient: Socket(%d) PER_SOCKET_CONTEXT closing (graceful=%s)\n",
+                   lpPerSocketContext->sessionId, (bGraceful ? "TRUE" : "FALSE"));
         if (!bGraceful) {
 
             //
@@ -488,7 +474,7 @@ VOID Poller::CloseClient(PER_SOCKET_CONTEXT *lpPerSocketContext,
         //TODO: remove online list
         lpPerSocketContext = NULL;
     } else {
-        myprintf("CloseClient: lpPerSocketContext is NULL\n");
+        printf("CloseClient: lpPerSocketContext is NULL\n");
     }
     xxx->unlock();
     return;
@@ -520,7 +506,7 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
 
             ZeroMemory(lpPerSocketContext->wsabuf.buf, lpPerSocketContext->wsabuf.len);
         } else {
-            myprintf("HeapAlloc() PER_SOCKET_CONTEXT failed: %d\n", GetLastError());
+            printf("HeapAlloc() PER_SOCKET_CONTEXT failed: %d\n", GetLastError());
         }
 
         xxx->unlock();
@@ -546,7 +532,7 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
 
             ZeroMemory(lpPerSocketContext->wsabuf.buf, lpPerSocketContext->wsabuf.len);
         } else {
-            myprintf("HeapAlloc() PER_SOCKET_CONTEXT failed: %d\n", GetLastError());
+            printf("HeapAlloc() PER_SOCKET_CONTEXT failed: %d\n", GetLastError());
         }
 
         xxx->unlock();
@@ -556,29 +542,5 @@ PER_SOCKET_CONTEXT *Poller::CtxtAllocate(SOCKET sd, RWMOD ClientIO) {
     return NULL;
 }
 
-int myprintf(const char *lpFormat, ...) {
-
-    int nLen = 0;
-    int nRet = 0;
-    char cBuffer[512];
-    va_list arglist;
-    HANDLE hOut = NULL;
-    HRESULT hRet;
-
-    ZeroMemory(cBuffer, sizeof(cBuffer));
-
-    va_start(arglist, lpFormat);
-
-    nLen = lstrlen(lpFormat);
-    hRet = StringCchVPrintf(cBuffer, 512, lpFormat, arglist);
-
-    if (nRet >= nLen || GetLastError() == 0) {
-        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        if (hOut != INVALID_HANDLE_VALUE)
-            WriteConsole(hOut, cBuffer, lstrlen(cBuffer), (LPDWORD) &nLen, NULL);
-    }
-
-    return nLen;
-}
 
 #endif

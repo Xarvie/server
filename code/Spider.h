@@ -30,15 +30,13 @@
 
 #elif defined(OS_WINDOWS)
 
-#include "IocpPoller.h"
+#include "IOCPPoller.h"
 
 #endif
 
 class Spider : public Poller {
 public:
     explicit Spider(int port, int threadsNum = 4);
-
-    Spider(Poller &&a) noexcept;
 
     Spider &operator=(Spider &&rhs) noexcept;
 
@@ -48,7 +46,7 @@ public:
 
     void stop();
 
-    virtual void onAccept(uint64_t sessionId, const Addr &addr) override;
+    void onAccept(uint64_t sessionId, const Addr &addr) override;
 
     void connect(const Addr &addr);
 
@@ -56,13 +54,7 @@ public:
 
     void onReadMsg(uint64_t sessionId, const Msg &msg) override;
 
-    void onWriteMsg(uint64_t sessionId, int len);
-
     void onWriteBytes(uint64_t sessionId, int len) override;
-
-    //void continueSendMsg(uint64_t sessionId);
-
-    //void closeSession(int64_t sessionId);
 
     void getSessionOption(uint64_t sessionId, int id, int &value) const;
 

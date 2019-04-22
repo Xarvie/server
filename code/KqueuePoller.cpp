@@ -1,26 +1,7 @@
-/*
- * Spider.cpp
- *
- *  Created on: Jan 19, 2019
- *      Author: xarvie
- */
 #include "SystemReader.h"
 #if defined(OS_DARWIN) && !defined(SELECT_SERVER)
-#include <stdlib.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/event.h>
-#include <sys/time.h>
-#include <errno.h>
-#include <arpa/inet.h>
-#include "Buffer.h"
-#include "Spider.h"
+
+#include "KqueuePoller.h"
 
 #define BUFFER_SIZE 1024
 #define on_error(...) { fprintf(stderr, __VA_ARGS__); fflush(stderr); exit(1); }

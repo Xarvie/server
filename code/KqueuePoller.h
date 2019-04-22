@@ -1,41 +1,11 @@
-
 #include "SystemReader.h"
-
 #if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 
-#ifndef SERVER_SPIDER_H_
-#define SERVER_ANT_H_
-#include "Buffer.h"
-#include <vector>
-#include <iostream>
-#include <string>
-#include <list>
-#include "Queue.h"
+#ifndef KQUEUEPOLLER_H
+#define KQUEUEPOLLER_H
+
 #include "NetStruct.h"
 
-class Poller;
-struct sockInfo
-{
-	unsigned short rrindex;
-    int port;
-    char ip[128];
-    int fd;
-    char task;/*1:listen 2:connect 3:disconnect*/
-};
-struct Addr {
-    std::string ip;
-    std::string port;
-};
-
-struct Msg {
-    int len;
-    unsigned char *buff;
-};
-
-union RawSocket {
-    int unixSocket;
-    void *windowsSocket = nullptr;
-};
 class Session
 {
 public:
@@ -72,12 +42,6 @@ public:
 
 class Poller
 {
-public:
-    /**
-     * API
-     */
-
-
 public:
 
 	virtual ~Poller();
@@ -152,5 +116,5 @@ public:
     int _shutdown = 0;
 };
 
-#endif /* SERVER_SPIDER_H_ */
+#endif /* KQUEUEPOLLER_H */
 #endif

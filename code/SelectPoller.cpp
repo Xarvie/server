@@ -12,19 +12,12 @@
 #pragma comment(lib, "ws2_32.lib")
 #else
 
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <string.h>
-
 #define SOCKET int
 #define INVALID_SOCKET  (SOCKET)(~0)
 #define SOCKET_ERROR            (-1)
 #endif
 
-#include <stdio.h>
-#include <thread>
-#include <vector>
-#include "Spider.h"
+#include "SelectPoller.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
