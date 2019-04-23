@@ -1,4 +1,5 @@
 #include "SystemReader.h"
+
 #if defined(OS_DARWIN) && !defined(SELECT_SERVER)
 
 #ifndef KQUEUEPOLLER_H
@@ -6,29 +7,29 @@
 
 #include "NetStruct.h"
 
-class Session
-{
+class Session {
 public:
-    enum
-    {
+    enum {
         BUFFER_SIZE = 4096
     };
 
     uint64_t sessionId;
-	int type; /*0:null 1:accept 2:connect*/
+    int type; /*0:null 1:accept 2:connect*/
     int64_t preHeartBeats = 0;
 
-	MessageBuffer writeBuffer;
+    MessageBuffer writeBuffer;
     MessageBuffer readBuffer;
     const int suggested_capacity = BUFFER_SIZE;
-	virtual int cbRead(int readNum);
+
+    virtual int cbRead(int readNum);
+
     virtual int cbAlloc();
+
     int disconnect();
 
     struct event_data *client_data = nullptr;
 
-    void reset()
-    {
+    void reset() {
         sessionId = 0;
         preHeartBeats = 0;
         readBuffer.reset();
@@ -37,72 +38,78 @@ public:
 };
 
 
-class Poller
-{
+class Poller {
 public:
 
-	virtual ~Poller();
+    virtual ~Poller();
 
 
-	int sendMsg(uint64_t fd, const Msg &msg);
-	int handleReadEvent(Session* conn);
-	int handleWriteEvent(Session* conn);
-	void closeConnection(Session* conn);
-	static void workerThreadCB(Poller* thisPtr, int *epfd, int epindex);
-	static void listenThreadCB(Poller* thisPtr, void *arg);
-	void workerThread(int *epfd, int epindex);
-	void listenThread(void *arg);
-	int listen(const int port);
-	int connect(const char * ip, const short port);
-	int idle();
-	int loop(int socketFd, const char * ip, const short port);
-	int run(int port);
-	static int initThreadCB(Poller* self, int port);
-	bool get(Msg& msg);
+    int sendMsg(uint64_t fd, const Msg &msg);
 
-	void disconnect(int fd);
-#define EPOLL_NUM 8
-int epfd[EPOLL_NUM];
-int lisSock;
+    void closeConnection(Session *conn);
 
-std::vector<std::thread> worker;
-std::list<std::thread> connectThreads;
-std::thread listenThread;
+    void workerThreadCB(int pollerIndex);
+
+    void listenThreadCB(int port);
+
+    int connect(const char *ip, const short port);
+
+    int run(int port);
+
+    void disconnect(int fd);
+
+    int on_read(struct kevent *event);
+
+    int on_write(struct kevent *event);
 
 
-moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
-moodycamel::ConcurrentQueue<sockInfo> eventQueue;
-std::vector< moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
-moodycamel::ConcurrentQueue<Msg> msgQueue;
-std::vector<Session*> sessions;
+    int lisSock;
 
-
-public:
-
-
-	virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
-	virtual void onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
-	virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
-
-	void event_server_listen (int port);
-    void event_change(int ident, int filter, int flags, void *udata);
-    void event_loop();
-    int event_flush_write (struct event_data *self, struct kevent *event);
-    int event_on_read(struct event_data *self, struct kevent *event);
-    int event_on_write (struct event_data *self, struct kevent *event);
-    int event_on_accept (struct event_data *self, struct kevent *event);
-
+    int maxWorker = 4;
+    std::vector<int> queue;
     struct kevent *events;
+    std::vector<struct kevent> event_set;
+    std::vector<struct kevent*> event_list;
     int events_used = 0;
     int events_alloc = 0;
 
+    std::vector<std::thread> workerThreads;
+    std::list<std::thread> connectThreads;
+    std::thread listenThread;
 
-    int queue;
+
+    moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
+    moodycamel::ConcurrentQueue<sockInfo> eventQueue;
+    std::vector<moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+    moodycamel::ConcurrentQueue<Msg> msgQueue;
+    std::vector<Session *> sessions;
+
+
+public:
+
+
+    virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
+
+    virtual void onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
+
+    virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
+
+    void event_change(int ident, int filter, int flags, void *udata);
+
+    int event_flush_write(struct event_data *self, struct kevent *event);
+
+    int event_on_read(struct event_data *self, struct kevent *event);
+
+    int event_on_write(struct event_data *self, struct kevent *event);
+
+    int event_on_accept(struct event_data *self, struct kevent *event);
+
+
     enum {
         ACCEPT_EVENT,
         RW_EVENT
     };
-    enum{
+    enum {
         REQ_DISCONNECT,
         REQ_SHUTDOWN,
         REQ_CONNECT
