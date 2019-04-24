@@ -54,7 +54,7 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
 int Poller::handleReadEvent(Session *conn) {
     unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
-    int ret = recv(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
+    int ret = recv(conn->sessionId, (char*)buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
 
     if (ret > 0) {
         conn->readBuffer.size += ret;
