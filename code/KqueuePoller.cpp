@@ -87,6 +87,17 @@ void Poller::listenThreadCB(int port) {
         if (client_fd < 0) {
             on_error("Accept failed (should this be fatal?): %s\n", strerror(errno));
         }
+        int nodelay = 1;
+        if (setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                       sizeof(nodelay)) < 0)
+            perror("error: nodelay");
+
+        int nRcvBufferLen = 80 * 1024;
+        int nSndBufferLen = 1 * 1024 * 1024;
+        int nLen = sizeof(int);
+
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
         this->sessions[client_fd]->type = 1;
         this->sessions[client_fd]->sessionId = (uint64_t) client_fd;
         flags = fcntl(client_fd, F_GETFL, 0);
