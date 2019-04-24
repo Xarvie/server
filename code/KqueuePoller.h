@@ -6,12 +6,10 @@
 #define KQUEUEPOLLER_H
 
 #include "NetStruct.h"
+#include "Buffer.h"
 
 class Session {
 public:
-    enum {
-        BUFFER_SIZE = 4096
-    };
 
     uint64_t sessionId;
     int type; /*0:null 1:accept 2:connect*/
@@ -90,7 +88,7 @@ public:
 
     virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
 
-    virtual void onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
+    virtual int onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
 
     virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
 

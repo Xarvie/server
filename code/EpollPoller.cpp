@@ -32,7 +32,6 @@ Poller::~Poller() {
     close(lisSock);
 }
 
-class Session;
 
 extern int send(uint64_t fd, unsigned char *data, int len);
 
@@ -55,6 +54,11 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
     int len = msg.len;
     unsigned char* data = msg.buff;
     Session *conn = this->sessions[fd];
+    if(conn->writeBuffer.size > 0)
+    {
+        conn->writeBuffer.push_back(len, data);
+        return 0;
+    }
     //free(conn->writeBuffer.buff);
 //if (conn->type == 0) { //TODO reconnect continue send?
 //        return -1;
@@ -62,6 +66,7 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
 
     int ret = write(conn->sessionId, data, len);
     if (ret > 0) {
+
         this->onWriteBytes(conn->sessionId, len);
         if (ret == len)
             return 0;
@@ -90,18 +95,22 @@ Msg msg;
 static int abc = 0;
 
 int Poller::handleReadEvent(Session *conn) {
-    unsigned char *buff = conn->readBuffer.buff;// + conn->readBuffer.size;
+    unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
-    int ret = read(conn->sessionId, buff, BUFFER_SIZE - 1);
-
+    int ret = read(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size);
     if (ret > 0) {
+        conn->readBuffer.size += ret;
+        conn->readBuffer.alloc();
+        if(conn->readBuffer.size > 1024 * 1024 * 3)
+        {
+            return -1;
+            //TODO close socket
+        }
         //TODO
-        buff[ret] = 0;
-        Msg msg;
-        msg.len = ret;
-        msg.buff = buff;
-        onReadMsg(conn->sessionId, msg);
-        //std::cout << buff << std::endl;
+        int readBytes = onReadMsg(conn->sessionId, ret);
+        conn->readBuffer.size -= readBytes;
+        if(conn->readBuffer.size < 0)
+            abort();
     } else if (ret == 0) {
         return -1;
     } else {

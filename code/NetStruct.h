@@ -43,10 +43,14 @@
 #endif
 
 #include "Queue.h"
-#include "Buffer.h"
+
 
 #define CONN_MAXFD 65535
-#define MAX_BUFF_SIZE 8192
+
+enum xx {
+    BUFFER_SIZE = 8192
+};
+
 #define xmalloc malloc
 #define xfree free
 

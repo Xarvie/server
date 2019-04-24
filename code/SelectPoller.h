@@ -6,6 +6,7 @@
 #define SERVER_SELECTSERVER_H
 
 #include "NetStruct.h"
+#include "Buffer.h"
 
 class Session
 {

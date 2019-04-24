@@ -16,7 +16,6 @@
 #include <map>
 #include "Buffer.h"
 #include "NetStruct.h"
-
 #if defined(SELECT_SERVER)
 #include "SelectPoller.h"
 
@@ -36,8 +35,8 @@
 
 class Spider : public Poller {
 public:
-    explicit Spider(int port, int threadsNum = 4);
-
+    //explicit Spider();
+    void create(int port, int threadsNum = 4);
     Spider &operator=(Spider &&rhs) noexcept;
 
     virtual ~Spider();
@@ -46,13 +45,15 @@ public:
 
     void stop();
 
-    void onAccept(uint64_t sessionId, const Addr &addr) override;
+    virtual void onAccept(uint64_t sessionId, const Addr &addr) override;
 
     void connect(const Addr &addr);
 
     virtual void onConnect(uint64_t sessionId, const Addr &addr);
 
-    void onReadMsg(uint64_t sessionId, const Msg &msg) override;
+    virtual int onReadMsg(uint64_t sessionId, int bytesNum) override;
+
+    void readByte(int byteNum);
 
     void onWriteBytes(uint64_t sessionId, int len) override;
 

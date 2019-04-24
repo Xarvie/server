@@ -1,8 +1,23 @@
 #include "Spider.h"
 
+
+class Server :public Spider{
+public:
+    virtual int onReadMsg(uint64_t sessionId, int bytesNum) override
+    {
+        Session *conn = this->sessions[sessionId];
+        Msg msg;
+        msg.buff = conn->readBuffer.buff;
+        msg.len = bytesNum;
+        this->sendMsg(sessionId, msg);
+
+        return bytesNum;
+    }
+};
 int main()
 {
-    Spider gate(9876);
+    Server gate;
+    gate.create(9876);
     gate.run();
 
     sleep(23424323);

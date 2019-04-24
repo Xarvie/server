@@ -5,11 +5,12 @@
 #define IOCPSERVER_H
 
 #include "NetStruct.h"
+#include "Buffer.h"
 
 // TODO close all client
 struct PER_SOCKET_CONTEXT {
     WSAOVERLAPPED Overlapped;
-    char Buffer[MAX_BUFF_SIZE];
+    char Buffer[BUFFER_SIZE];
     WSABUF wsabuf;
     int nTotalBytes;
     int nSentBytes;

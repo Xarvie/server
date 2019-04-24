@@ -12,7 +12,7 @@
 
 //std::atomic_int v = 0;
 
-Spider::Spider(int port, int threadsNum) {
+void Spider::create(int port, int threadsNum) {
     sessions.resize(65535);
     for (int i = 0; i < 65535; i++) {
         //sessions[i] = new(xmalloc(sizeof(Session))) Session;
@@ -33,9 +33,19 @@ Spider::~Spider() {
 
 }
 
-void Spider::onReadMsg(uint64_t sessionId, const Msg &msg) {
-    std::cout << msg.buff;
-    this->sendMsg(sessionId, msg);
+int Spider::onReadMsg(uint64_t sessionId, int byteNum) {
+
+    Session *conn = this->sessions[sessionId];
+
+    //conn->readBuffer.
+    //if(this->)
+    //this->sendMsg(sessionId, msg);
+    return byteNum;
+}
+
+void Spider::readByte(int byteNum)
+{
+
 }
 
 void Spider::onWriteBytes(uint64_t sessionId, int len) {

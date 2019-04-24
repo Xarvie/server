@@ -21,11 +21,7 @@
 //#include "concurrentqueue.h"
 //#include "block.h"
 #include "NetStruct.h"
-enum
-{
-    BUFFER_SIZE = 4096,
-    HEARD_SIZE = 4
-};
+
 class MessageBuffer
 {
 public:
@@ -34,7 +30,7 @@ public:
     {
 //        if(buff != nullptr)
 //            destroy();
-        buff = (unsigned char*)malloc(BUFFER_SIZE);
+        buff = (unsigned char*)malloc(xx::BUFFER_SIZE);
         capacity = BUFFER_SIZE;
         size = 0;
     }
@@ -49,7 +45,7 @@ public:
     void push_back(int len, const unsigned char* buff1)
     {
         int newSize = size + len;
-        if(newSize > capacity)
+        if(newSize >= capacity - BUFFER_SIZE * 2)
         {
             this->capacity = (((size + len)/BUFFER_SIZE)+3)*BUFFER_SIZE;
             this->buff = (unsigned char*)::realloc(this->buff, this->capacity);
@@ -59,6 +55,20 @@ public:
 
         memcpy(this->buff + size, buff1, len);
         this->size += len;
+    }
+
+    void alloc()
+    {
+        if(this->capacity - this->size >= BUFFER_SIZE * 2)
+        {
+            return ;
+        }
+        int newSize = ((this->size / BUFFER_SIZE)+3)*BUFFER_SIZE;
+        this->capacity = newSize;
+        this->buff = (unsigned char*)::realloc(this->buff, this->capacity);
+        if(buff == nullptr)
+            ;//TODO
+
     }
 
     void record(int size)

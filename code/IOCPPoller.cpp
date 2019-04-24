@@ -62,7 +62,7 @@ void Poller::workerThreadCB(int pollIndex) {
                     dwRecvNumBytes = 0;
                     dwFlags = 0;
                     buffRecv.buf = lpPerSocketContext->Buffer,
-                            buffRecv.len = MAX_BUFF_SIZE;
+                            buffRecv.len = BUFFER_SIZE;
 
 
                     nRet = WSARecv(lpPerSocketContext->sessionId, &buffRecv, 1,

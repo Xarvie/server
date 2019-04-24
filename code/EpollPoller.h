@@ -5,6 +5,7 @@
 #define EPOLLPOLL_H_
 
 #include "NetStruct.h"
+#include "Buffer.h"
 
 class Session
 {
@@ -30,7 +31,7 @@ public:
 
 	virtual ~Poller();
 	virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
-	virtual void onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
+	virtual int onReadMsg(uint64_t sessionId, int byteNum) = 0;
 	virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
 
 
