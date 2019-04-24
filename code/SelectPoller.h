@@ -38,7 +38,7 @@ public:
     Poller& operator = (Poller &&rhs) noexcept;
     */
     virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
-    virtual void onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
+    virtual int onReadMsg(uint64_t sessionId, int bytesNum) = 0;
     virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
 
 

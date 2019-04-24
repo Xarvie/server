@@ -97,7 +97,7 @@ static int abc = 0;
 int Poller::handleReadEvent(Session *conn) {
     unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
-    int ret = read(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size);
+    int ret = recv(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
     if (ret > 0) {
         conn->readBuffer.size += ret;
         conn->readBuffer.alloc();
