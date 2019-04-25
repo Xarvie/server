@@ -88,19 +88,11 @@ public:
 
     virtual void onAccept(uint64_t sessionId, const Addr &addr) = 0;
 
-    virtual int onReadMsg(uint64_t sessionId, const Msg &msg) = 0;
+    virtual int onReadMsg(uint64_t sessionId, int bytesNum) = 0;
 
     virtual void onWriteBytes(uint64_t sessionId, int len) = 0;
 
     void event_change(int ident, int filter, int flags, void *udata);
-
-    int event_flush_write(struct event_data *self, struct kevent *event);
-
-    int event_on_read(struct event_data *self, struct kevent *event);
-
-    int event_on_write(struct event_data *self, struct kevent *event);
-
-    int event_on_accept(struct event_data *self, struct kevent *event);
 
 
     enum {

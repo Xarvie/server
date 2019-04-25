@@ -144,57 +144,39 @@ void Poller::event_change(int ident, int filter, int flags, void *udata) {
     e->udata = udata;
 }
 
-int Poller::event_flush_write(struct event_data *self, struct kevent *event) {
-
-    int sock = event->ident;
-    Session *conn = sessions[sock];
-    if (conn->writeBuffer.size == 0)
-        return 0;
-
-    int ret = write(conn->sessionId, (void *) conn->writeBuffer.buff,
-                    conn->writeBuffer.size);
-
-    if (ret == -1) {
-        if (errno != EINTR && errno != EAGAIN) {
-            return -1;
-        }
-        event_change(conn->sessionId, EVFILT_WRITE, EV_ENABLE, self);
-    } else {
-        conn->writeBuffer.erase(ret);
-    }
-    if (conn->writeBuffer.size == 0)
-        event_change(conn->sessionId, EVFILT_WRITE, EV_DISABLE, self);
-    return 0;
-}
 
 int Poller::on_read(struct kevent *event) {
 
     int sock = event->ident;
     Session *conn = this->sessions[sock];
-    unsigned char buff[BUFFER_SIZE];
-    int ret = read(conn->sessionId, buff, BUFFER_SIZE - 1);
+    unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
+    int ret = recv(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
     if (ret > 0) {
+        conn->readBuffer.size += ret;
+        conn->readBuffer.alloc();
+        if (conn->readBuffer.size > 1024 * 1024 * 3) {
+            return -1;
+            //TODO close socket
+        }
         //TODO
-        buff[ret] = 0;
-        Msg msg;
-        msg.len = ret;
-        msg.buff = buff;
-        onReadMsg(conn->sessionId, msg);
+        int readBytes = onReadMsg(conn->sessionId, ret);
+        conn->readBuffer.size -= readBytes;
+        if (conn->readBuffer.size < 0)
+            abort();
+    }else if (ret == 0) {
+        this->closeConnection(conn);//TODO
+        //free(self);
+        return 0;
     }
-
-    if (ret < 0) {
+    else  {
         if (errno == EWOULDBLOCK || errno == EAGAIN) return 0;
         this->closeConnection(conn);
         //free(self);
         return 0;
     }
 
-    if (ret == 0) {
-        this->closeConnection(conn);
-        //free(self);
-        return 0;
-    }
+
 
     return 0;
 }
@@ -215,7 +197,6 @@ int Poller::on_write(struct kevent *event) {
             return -1;
         }
         EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
-        std::cout << "eagin" << std::endl;
     } else {
         conn->writeBuffer.erase(ret);
     }
@@ -231,38 +212,6 @@ void Poller::closeConnection(Session *conn) {
     conn->type = 0;
     conn->readBuffer.erase(conn->readBuffer.size);
     conn->writeBuffer.erase(conn->writeBuffer.size);
-}
-
-int Poller::event_on_read(struct event_data *self, struct kevent *event) {
-
-    int sock = event->ident;
-    Session *conn = this->sessions[sock];
-    unsigned char buff[BUFFER_SIZE];
-    int ret = read(conn->sessionId, buff, BUFFER_SIZE - 1);
-
-    if (ret > 0) {
-        //TODO
-        buff[ret] = 0;
-        Msg msg;
-        msg.len = ret;
-        msg.buff = buff;
-        onReadMsg(conn->sessionId, msg);
-    }
-
-    if (ret < 0) {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) return 0;
-        this->closeConnection(conn);
-        free(self);
-        return 0;
-    }
-
-    if (ret == 0) {
-        this->closeConnection(conn);
-        free(self);
-        return 0;
-    }
-
-    return 0;
 }
 
 void Poller::disconnect(int fd) {
@@ -379,8 +328,6 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
     if (leftBytes > 0)
     {
         EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
-
-        std::cout << "eagin" << std::endl;
     }
 
 
