@@ -50,6 +50,13 @@ void connectorThread(void *arg) {
 
 }
 
+int Poller::closeSession(uint64_t fd) {
+    Session *conn = sessions[fd];
+    close(conn->sessionId);
+    conn->readBuffer.erase(conn->readBuffer.size);
+    conn->writeBuffer.erase(conn->writeBuffer.size);
+    return 0;
+}
 int Poller::sendMsg(uint64_t fd, const Msg &msg) {
     int len = msg.len;
     unsigned char* data = msg.buff;
@@ -110,7 +117,7 @@ int Poller::handleReadEvent(Session *conn) {
         int readBytes = onReadMsg(conn->sessionId, ret);
         conn->readBuffer.size -= readBytes;
         if(conn->readBuffer.size < 0)
-            abort();
+            return -1;
     } else if (ret == 0) {
         return -1;
     } else {
@@ -145,19 +152,6 @@ int Poller::handleWriteEvent(Session *conn) {
     return 0;
 }
 
-#if defined(OS_LINUX)
-
-void Poller::closeConnection(Session *conn) {
-
-    struct epoll_event evReg;
-    close(conn->sessionId);
-    conn->readBuffer.erase(conn->readBuffer.size);
-    conn->writeBuffer.erase(conn->writeBuffer.size);
-    //TODO
-}
-
-#endif
-
 
 
 void Poller::workerThreadCB(int epindex) {
@@ -186,14 +180,14 @@ void Poller::workerThreadCB(int epindex) {
 //                continue;
             if (event.events & EPOLLOUT) {
                 if (this->handleWriteEvent(conn) == -1) {
-                    this->closeConnection(conn);
+                    this->closeSession(sock);
                     continue;
                 }
             }
 
             if (event.events & EPOLLIN) {
                 if (this->handleReadEvent(conn) == -1) {
-                    this->closeConnection(conn);
+                    this->closeSession(sock);
                     continue;
                 }
             }
@@ -257,7 +251,7 @@ void Poller::listenThreadCB(int port) {
                     perror("error: nodelay");
 
                 int nRcvBufferLen = 80 * 1024;
-                int nSndBufferLen = 1 * 1024 * 1024;
+                int nSndBufferLen = 1 * 1024;
                 int nLen = sizeof(int);
 
                 setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);

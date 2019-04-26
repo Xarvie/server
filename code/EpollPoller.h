@@ -38,7 +38,8 @@ public:
 	int sendMsg(uint64_t fd, const Msg &msg);
 	int handleReadEvent(Session* conn);
 	int handleWriteEvent(Session* conn);
-	void closeConnection(Session* conn);
+
+	int closeSession(uint64_t fd);
 
 	void workerThreadCB(int epindex);
 	void listenThreadCB(int port);

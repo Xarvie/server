@@ -24,11 +24,28 @@
 #ifdef OS_WINDOWS
 #define getSockError WSAGetLastError
 #define closeSocket closesocket
+
 #else
-getSockError() errno
+#define getSockError() errno
 #define closeSocket close
 #endif
 
+int IsEagain()
+{
+#if defined(OS_WINDOWS)
+    int err = getSockError();
+    if (err == EINTR || err == EAGAIN  || err == EWOULDBLOCK || err == WSAEWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#else
+    int err = errno;
+    if (err == EINTR || err == EAGAIN  || err == EWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#endif
+}
 int Poller::sendMsg(uint64_t fd, const Msg &msg) {
     unsigned char *data = msg.buff;
     int len = msg.len;
@@ -48,7 +65,7 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
         } else {
             int err = getSockError();
 
-            if (err != EINTR && err != EAGAIN  && err != EWOULDBLOCK && err != WSAEWOULDBLOCK) {
+            if (!IsEagain()) {
                 std::cout <<"err: send :" << err << std::endl;
                 return -1;
             }
@@ -62,6 +79,9 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
 }
 
 int Poller::handleReadEvent(Session *conn) {
+    if (conn->readBuffer.size < 0)
+        return -1;
+
     unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
     int ret = recv(conn->sessionId, (char*)buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
@@ -78,14 +98,14 @@ int Poller::handleReadEvent(Session *conn) {
         int readBytes = onReadMsg(conn->sessionId, ret);
         conn->readBuffer.size -= readBytes;
         if(conn->readBuffer.size < 0)
-            abort();
+            return -1;
     } else if (ret == 0) {
         return -1;
     } else {
         int err = getSockError();
 
-        if (err != EINTR && err != EAGAIN  && err != EWOULDBLOCK && err != WSAEWOULDBLOCK) {
-            std::cout << "err: recv " << errno << std::endl;
+        if (!IsEagain()) {
+            std::cout << "err: recv " << err << std::endl;
             return -1;
         }
     }
@@ -95,6 +115,8 @@ int Poller::handleReadEvent(Session *conn) {
 int Poller::handleWriteEvent(Session *conn) {
     if (conn->writeBuffer.size == 0)
         return 0;
+    if (conn->writeBuffer.size < 0)
+        return -1;
 
     int ret = send(conn->sessionId, (char *) conn->writeBuffer.buff,
                     conn->writeBuffer.size, 0);
@@ -102,8 +124,7 @@ int Poller::handleWriteEvent(Session *conn) {
     if (ret == -1) {
         int err = getSockError();
 
-        if (err != EINTR && err != EAGAIN  && err != EWOULDBLOCK && err != WSAEWOULDBLOCK) {
-
+        if (!IsEagain()) {
             printf("err:write %d\n", errno);
             return -1;
         }
@@ -120,23 +141,24 @@ void Poller::closeConnection(Session *conn) {
     if(conn->readBuffer.size < 0 || conn->writeBuffer.size < 0)
         return;
     int index = conn->sessionId/4 % this->maxWorker;
-    std::set<SOCKET>& clientVec = this->clients[index];
+    std::set<uint64_t >& clientVec = this->clients[index];
     std::set<uint64_t>& acceptClientFdsVec = this->acceptClientFds[index];
     acceptClientFdsVec.erase(conn->sessionId);
 
 
-    LINGER lingerStruct;
+    linger lingerStruct;
 
     lingerStruct.l_onoff = 1;
     lingerStruct.l_linger = 0;
     setsockopt(conn->sessionId, SOL_SOCKET, SO_LINGER,
                (char *) &lingerStruct, sizeof(lingerStruct));
-
+    conn->readBuffer.size = -1;
+    conn->writeBuffer.size  = -1;
     closeSocket(conn->sessionId);
 }
 
 void Poller::workerThreadCB(int index) {
-    std::set<SOCKET>& clientVec = this->clients[index];
+    std::set<uint64_t>& clientVec = this->clients[index];
     std::set<uint64_t>& acceptClientFdsVec = this->acceptClientFds[index];
     moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[index];
     sockInfo event;
@@ -168,7 +190,10 @@ void Poller::workerThreadCB(int index) {
                 ret = fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
                 if (ret < 0) printf("Could set server socket to be non blocking: %s\n", strerror(errno));
 #endif
+
                 acceptClientFdsVec.insert((uint64_t) event.fd);
+                sessions[clientFd]->readBuffer.size = 0;
+                sessions[clientFd]->writeBuffer.size = 0;
             }
 
         }
@@ -187,7 +212,7 @@ void Poller::workerThreadCB(int index) {
             SOCKET maxSock = 0;//TODO
             for (auto &E:acceptClientFdsVec)
                 clientVec.insert(E);
-            acceptClientFds.clear();
+            acceptClientFdsVec.clear();
             for (auto& E :clientVec) {
                 FD_SET(E, &fdRead);
                 FD_SET(E, &fdWrite);
