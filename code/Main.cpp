@@ -7,10 +7,11 @@ public:
     {
         Session *conn = this->sessions[sessionId];
         Msg msg;
-        msg.buff = conn->readBuffer.buff;
-        msg.len = bytesNum;
+        msg.buff = (unsigned char*)malloc(102400);//conn->readBuffer.buff;
+        msg.len = 102400;
+        for(int i = 0; i< 100; i++)
         this->sendMsg(sessionId, msg);
-
+        closeConnection(conn);
         return bytesNum;
     }
 };

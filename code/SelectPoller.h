@@ -70,7 +70,8 @@ public:
     std::thread listenThread;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
-
+    std::vector<std::set<SOCKET>> clients;
+    std::vector<std::set<uint64_t>> acceptClientFds;
 };
 
 #endif //SERVER_SELECTSERVER_H

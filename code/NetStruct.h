@@ -17,7 +17,7 @@
 #include <mutex>
 #include <utility>
 #include <map>
-
+#include <set>
 
 #if defined(OS_WINDOWS)
 #include <mswsock.h>
