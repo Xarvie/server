@@ -195,7 +195,7 @@ int Poller::handleWriteEvent(Session *conn) {
 void Poller::workerThreadCB(int index) {
     int epfd = this->epolls[index];
 
-    struct epoll_event event;
+    struct epoll_event event[30];
     struct epoll_event evReg;
     bool dequeueRet = false;
     sockInfo event1;
@@ -242,7 +242,7 @@ void Poller::workerThreadCB(int index) {
 
         }
 
-        int numEvents = epoll_wait(epfd, &event, 1, 1000);//TODO wait 1
+        int numEvents = epoll_wait(epfd, event, 30, 1000);//TODO wait 1
         sockInfo taskInfo;
         int shutdown = 0;
 
@@ -252,32 +252,33 @@ void Poller::workerThreadCB(int index) {
 
         if (numEvents == -1) {
             //printf("wait\n %d", errno);
-        }
-
-        if (numEvents > 0) {
-            int sock = event.data.fd;
-            Session *conn = this->sessions[sock];
+        }else if (numEvents > 0) {
+            for(int i = 0; i < numEvents; i++)
+            {
+                int sock = event[i].data.fd;
+                Session *conn = this->sessions[sock];
 //            if (conn->type == 0) //TODO
 //                continue;
-            if (event.events & EPOLLOUT) {
-                if (this->handleWriteEvent(conn) == -1) {
-                    this->closeSession(conn);
-                    continue;
+                if (event[i].events & EPOLLOUT) {
+                    if (this->handleWriteEvent(conn) == -1) {
+                        this->closeSession(conn);
+                        continue;
+                    }
                 }
-            }
 
-            if (event.events & EPOLLIN) {
-                if (this->handleReadEvent(conn) == -1) {
-                    this->closeSession(conn);
-                    continue;
+                if (event[i].events & EPOLLIN) {
+                    if (this->handleReadEvent(conn) == -1) {
+                        this->closeSession(conn);
+                        continue;
+                    }
                 }
-            }
 
-            evReg.events = EPOLLIN | EPOLLONESHOT;
-            if (conn->writeBuffer.size > 0)
-                evReg.events |= EPOLLOUT;
-            evReg.data.fd = sock;
-            epoll_ctl(epfd, EPOLL_CTL_MOD, conn->sessionId, &evReg);
+                evReg.events = EPOLLIN | EPOLLONESHOT;
+                if (conn->writeBuffer.size > 0)
+                    evReg.events |= EPOLLOUT;
+                evReg.data.fd = sock;
+                epoll_ctl(epfd, EPOLL_CTL_MOD, conn->sessionId, &evReg);
+            }
         }
     }
 }
