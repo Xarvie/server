@@ -165,13 +165,13 @@ int Poller::on_read(struct kevent *event) {
         if (conn->readBuffer.size < 0)
             abort();
     }else if (ret == 0) {
-        this->closeConnection(conn);//TODO
+        this->closeSession(conn);//TODO
         //free(self);
         return 0;
     }
     else  {
         if (errno == EWOULDBLOCK || errno == EAGAIN) return 0;
-        this->closeConnection(conn);
+        this->closeSession(conn);
         //free(self);
         return 0;
     }
@@ -205,7 +205,7 @@ int Poller::on_write(struct kevent *event) {
     return 0;
 }
 
-void Poller::closeConnection(Session *conn) {
+void Poller::closeSession(Session *conn) {
 
     //struct epoll_event evReg;
     close(conn->sessionId);

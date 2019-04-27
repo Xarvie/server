@@ -5,6 +5,31 @@
 
 #include "EpollPoller.h"
 
+int IsEagain()
+{
+#if defined(OS_WINDOWS)
+    int err = getSockError();
+    if (err == EINTR || err == EAGAIN  || err == EWOULDBLOCK || err == WSAEWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#else
+    int err = errno;
+    if (err == EINTR || err == EAGAIN  || err == EWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#endif
+}
+
+#ifdef OS_WINDOWS
+#define getSockError WSAGetLastError
+#define closeSocket closesocket
+
+#else
+#define getSockError() errno
+#define closeSocket close
+#endif
 
 Poller::~Poller() {
     int i = 0, c = 0;
@@ -20,8 +45,7 @@ Poller::~Poller() {
 
     for (c = 0; c < CONN_MAXFD; ++c) {
         Session *conn = sessions[c];
-//        if (conn->type) {//TODO
-//        }
+
         sessions[c]->readBuffer.destroy();
         sessions[c]->writeBuffer.destroy();
     }
@@ -50,13 +74,21 @@ void connectorThread(void *arg) {
 
 }
 
-int Poller::closeSession(uint64_t fd) {
-    Session *conn = sessions[fd];
-    close(conn->sessionId);
-    conn->readBuffer.erase(conn->readBuffer.size);
-    conn->writeBuffer.erase(conn->writeBuffer.size);
-    return 0;
+void Poller::closeSession(Session* conn) {
+    if(conn->readBuffer.size < 0 || conn->writeBuffer.size < 0)
+        return;
+    int index = conn->sessionId % this->maxWorker;
+    linger lingerStruct;
+
+    lingerStruct.l_onoff = 1;
+    lingerStruct.l_linger = 0;
+    setsockopt(conn->sessionId, SOL_SOCKET, SO_LINGER,
+               (char *) &lingerStruct, sizeof(lingerStruct));
+    conn->readBuffer.size = -1;
+    conn->writeBuffer.size  = -1;
+    closeSocket(conn->sessionId);
 }
+
 int Poller::sendMsg(uint64_t fd, const Msg &msg) {
     int len = msg.len;
     unsigned char* data = msg.buff;
@@ -102,9 +134,13 @@ Msg msg;
 static int abc = 0;
 
 int Poller::handleReadEvent(Session *conn) {
+    if (conn->readBuffer.size < 0)
+        return -1;
+
     unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
     int ret = recv(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
+
     if (ret > 0) {
         conn->readBuffer.size += ret;
         conn->readBuffer.alloc();
@@ -133,6 +169,10 @@ int Poller::handleWriteEvent(Session *conn) {
     if (conn->writeBuffer.size == 0)
         return 0;
 
+    if (conn->writeBuffer.size < 0)
+        return -1;
+
+
     int ret = write(conn->sessionId, (void *) conn->writeBuffer.buff,
                     conn->writeBuffer.size);
 
@@ -152,15 +192,56 @@ int Poller::handleWriteEvent(Session *conn) {
     return 0;
 }
 
-
-
-void Poller::workerThreadCB(int epindex) {
-    int epfd = this->epolls[epindex];
+void Poller::workerThreadCB(int index) {
+    int epfd = this->epolls[index];
 
     struct epoll_event event;
     struct epoll_event evReg;
-
+    bool dequeueRet = false;
+    sockInfo event1;
+    moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[index];
     while (true) {
+        while (queue.try_dequeue(event1)) {
+            if (event1.event  == ACCEPT_EVENT) {
+                int ret = 0;
+                int clientFd = event1.fd;
+
+                int nRcvBufferLen = 80 * 1024;
+                int nSndBufferLen = 1 * 1024 * 1024;
+                int nLen = sizeof(int);
+
+                setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
+                setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
+                int nodelay = 1;
+                if (setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                               sizeof(nodelay)) < 0)
+                    perror("error: nodelay");
+#if defined(OS_WINDOWS)
+                unsigned long ul = 1;
+                ret = ioctlsocket(clientFd, FIONBIO, (unsigned long *) &ul);//设置成非阻塞模式。
+                if (ret == SOCKET_ERROR)
+                    printf("Could not get server socket flags: %s\n", strerror(errno));
+#else
+                int flags = fcntl(clientFd, F_GETFL, 0);
+                if (flags < 0) printf("Could not get server socket flags: %s\n", strerror(errno));
+
+                ret = fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+                if (ret < 0) printf("Could set server socket to be non blocking: %s\n", strerror(errno));
+#endif
+
+                //acceptClientFdsVec.insert((uint64_t) event1.fd);
+                sessions[clientFd]->readBuffer.size = 0;
+                sessions[clientFd]->writeBuffer.size = 0;
+
+                evReg.data.fd = clientFd;
+                evReg.events = EPOLLIN | EPOLLONESHOT;
+                this->sessions[clientFd]->sessionId = clientFd;
+                epoll_ctl(this->epolls[index], EPOLL_CTL_ADD, clientFd, &evReg);
+
+            }
+
+        }
+
         int numEvents = epoll_wait(epfd, &event, 1, 1000);//TODO wait 1
         sockInfo taskInfo;
         int shutdown = 0;
@@ -180,14 +261,14 @@ void Poller::workerThreadCB(int epindex) {
 //                continue;
             if (event.events & EPOLLOUT) {
                 if (this->handleWriteEvent(conn) == -1) {
-                    this->closeSession(sock);
+                    this->closeSession(conn);
                     continue;
                 }
             }
 
             if (event.events & EPOLLIN) {
                 if (this->handleReadEvent(conn) == -1) {
-                    this->closeSession(sock);
+                    this->closeSession(conn);
                     continue;
                 }
             }
@@ -245,28 +326,16 @@ void Poller::listenThreadCB(int port) {
             if (sock > 0) {
 //                this->sessions[sock].type = 1; //TODO
 
-                int nodelay = 1;
-                if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &nodelay,
-                               sizeof(nodelay)) < 0)
-                    perror("error: nodelay");
-
-                int nRcvBufferLen = 80 * 1024;
-                int nSndBufferLen = 1 * 1024;
-                int nLen = sizeof(int);
-
-                setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
-                setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
-                int flag;
-                flag = fcntl(sock, F_GETFL);
-                fcntl(sock, F_SETFL, flag | O_NONBLOCK);
-
-                evReg.data.fd = sock;
-                evReg.events = EPOLLIN | EPOLLONESHOT;
-                this->sessions[sock]->sessionId = sock;
-                epoll_ctl(this->epolls[sock % this->maxWorker], EPOLL_CTL_ADD, sock, &evReg);
-
-
-
+                int pollerId = 0;
+#ifdef OS_WINDOWS
+                pollerId = sock / 4 % maxWorker;
+#else
+                pollerId = sock % maxWorker;
+#endif
+                sockInfo x;
+                x.fd = sock;
+                x.event = ACCEPT_EVENT;
+                taskQueue[pollerId].enqueue(x);
             }
         }
     }

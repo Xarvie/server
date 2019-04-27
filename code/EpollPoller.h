@@ -39,9 +39,9 @@ public:
 	int handleReadEvent(Session* conn);
 	int handleWriteEvent(Session* conn);
 
-	int closeSession(uint64_t fd);
+	void closeSession(Session* fd);
 
-	void workerThreadCB(int epindex);
+	void workerThreadCB(int index);
 	void listenThreadCB(int port);
 	int listen(int port);
 	int connect(const char * ip, short port);

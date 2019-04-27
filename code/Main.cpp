@@ -11,7 +11,7 @@ public:
         msg.len = 102400;
         for(int i = 0; i< 100; i++)
         this->sendMsg(sessionId, msg);
-        closeConnection(conn);
+        closeSession(conn);
         return bytesNum;
     }
 };

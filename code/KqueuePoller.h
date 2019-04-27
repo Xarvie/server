@@ -44,7 +44,7 @@ public:
 
     int sendMsg(uint64_t fd, const Msg &msg);
 
-    void closeConnection(Session *conn);
+    void closeSession(Session *conn);
 
     void workerThreadCB(int pollerIndex);
 

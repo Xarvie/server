@@ -137,7 +137,7 @@ int Poller::handleWriteEvent(Session *conn) {
     return 0;
 }
 
-void Poller::closeConnection(Session *conn) {
+void Poller::closeSession(Session *conn) {
     if(conn->readBuffer.size < 0 || conn->writeBuffer.size < 0)
         return;
     int index = conn->sessionId/4 % this->maxWorker;
@@ -177,7 +177,10 @@ void Poller::workerThreadCB(int index) {
 
                 setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
                 setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
-
+                int nodelay = 1;
+                if (setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                               sizeof(nodelay)) < 0)
+                    perror("error: nodelay");
 #if defined(OS_WINDOWS)
                 unsigned long ul = 1;
                 ret = ioctlsocket(clientFd, FIONBIO, (unsigned long *) &ul);//设置成非阻塞模式。
@@ -248,7 +251,7 @@ void Poller::workerThreadCB(int index) {
                     bool needDel = false;
                     if (FD_ISSET(fd, &fdRead)) {
                         if (handleReadEvent(sessions[fd]) == -1) {
-                            this->closeConnection(sessions[fd]);
+                            this->closeSession(sessions[fd]);
                             needDel = 1;
                             iter = clientVec.erase(iter);
                             continue;
@@ -256,7 +259,7 @@ void Poller::workerThreadCB(int index) {
                     }
                     if (FD_ISSET(fd, &fdWrite)) {
                         if (handleWriteEvent(sessions[fd]) == -1) {
-                            this->closeConnection(sessions[fd]);
+                            this->closeSession(sessions[fd]);
                             needDel = 1;
                             iter = clientVec.erase(iter);
                             continue;
@@ -276,7 +279,7 @@ void Poller::workerThreadCB(int index) {
 
     for(auto iter = clientVec.begin(); iter != clientVec.end(); iter++)
     {
-        this->closeConnection(sessions[*iter]);
+        this->closeSession(sessions[*iter]);
     }
 
 }
