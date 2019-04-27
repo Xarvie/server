@@ -63,7 +63,7 @@ public:
 
     int lisSock;
 
-    int maxWorker = 4;
+    int maxWorker = 1;
     std::vector<int> queue;
     struct kevent *events;
     std::vector<struct kevent> event_set;
@@ -79,6 +79,8 @@ public:
     moodycamel::ConcurrentQueue<sockInfo> listenTaskQueue;
     moodycamel::ConcurrentQueue<sockInfo> eventQueue;
     std::vector<moodycamel::ConcurrentQueue<sockInfo> > acceptTaskQueue;
+
+    std::vector< moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
     moodycamel::ConcurrentQueue<Msg> msgQueue;
     std::vector<Session *> sessions;
 

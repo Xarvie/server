@@ -6,6 +6,31 @@
 
 #define on_error(...) { fprintf(stderr, __VA_ARGS__); fflush(stderr); exit(1); }
 
+int IsEagain() {
+#if defined(OS_WINDOWS)
+    int err = getSockError();
+    if (err == EINTR || err == EAGAIN  || err == EWOULDBLOCK || err == WSAEWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#else
+    int err = errno;
+    if (err == EINTR || err == EAGAIN || err == EWOULDBLOCK) {
+        return 1;
+    }
+    return 0;
+#endif
+}
+
+#ifdef OS_WINDOWS
+#define getSockError WSAGetLastError
+#define closeSocket closesocket
+
+#else
+#define getSockError() errno
+#define closeSocket close
+#endif
+
 int Session::cbRead(int readNum) {
     return 0;
 }
@@ -55,22 +80,78 @@ struct event_data {
 
 void Poller::workerThreadCB(int pollerIndex) {
     int nev = 0;
+    bool dequeueRet = false;
+    sockInfo event1;
+    moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[pollerIndex];
+
     while (1) {
-        nev = kevent(this->queue[pollerIndex], NULL, 0, event_list[pollerIndex], 32, NULL);
-        if (nev < 1) {
-            std::cout << "kevent < 1" << std::endl;
+        while (queue.try_dequeue(event1)) {
+            if (event1.event == ACCEPT_EVENT) {
+                int ret = 0;
+                int clientFd = event1.fd;
+
+                {
+                    int nodelay = 1;
+                    if (setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                                   sizeof(nodelay)) < 0)
+                        perror("error: nodelay");
+
+                    int nRcvBufferLen = 80 * 1024;
+                    int nSndBufferLen = 1 * 1024 * 1024;
+                    int nLen = sizeof(int);
+
+                    setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
+                    setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
+                    this->sessions[clientFd]->type = 1;
+                    this->sessions[clientFd]->sessionId = (uint64_t) clientFd;
+                    int flags = fcntl(clientFd, F_GETFL, 0);
+                    if (flags < 0) on_error("Could not get client socket flags: %s\n", strerror(errno));
+
+                    int err = fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+                    if (err < 0) on_error("Could not set client socket to be non blocking: %s\n", strerror(errno));
+                    int pollerIndex = clientFd % this->maxWorker;
+                    EV_SET(&event_set[pollerIndex], clientFd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+                    if (kevent(this->queue[pollerIndex], &event_set[pollerIndex], 1, NULL, 0, NULL) == -1) {
+                        printf("error\n");
+                    }
+                    EV_SET(&event_set[pollerIndex], clientFd, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
+                    if (kevent(this->queue[pollerIndex], &event_set[pollerIndex], 1, NULL, 0, NULL) == -1) {
+                        printf("error\n");
+                    }
+                }
+            }
+        }
+        struct timespec timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_nsec = 0;
+        nev = kevent(this->queue[pollerIndex], NULL, 0, event_list[pollerIndex], 32, &timeout);
+        if (nev == 0) {
+
+            continue;
+        } else if (nev < 0) {
+            std::cout << "kevent < 0" << std::endl;
+            return;
         }
         for (int event = 0; event < nev; event++) {
             if (event_list[pollerIndex][event].flags & EV_EOF) {
 
             }
             if (event_list[pollerIndex][event].flags & EVFILT_READ) {
-                this->on_read(&event_list[pollerIndex][event]);
+                if (-1 == this->on_read(&event_list[pollerIndex][event])) {
+                    int sock = event_list[pollerIndex][event].ident;
+                    Session *conn = this->sessions[sock];
+                    this->closeSession(conn);
+                }
 
             }
             if (event_list[pollerIndex][event].flags & EVFILT_WRITE) {
-                this->on_write(&event_list[pollerIndex][event]);
-
+                int sock = event_list[pollerIndex][event].ident;
+                Session *conn = this->sessions[sock];
+                if (-1 == this->on_write(&event_list[pollerIndex][event])) {
+                    this->closeSession(conn);
+                } else{
+                    EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
+                }
             }
         }
     }
@@ -87,35 +168,16 @@ void Poller::listenThreadCB(int port) {
         if (client_fd < 0) {
             on_error("Accept failed (should this be fatal?): %s\n", strerror(errno));
         }
-        int nodelay = 1;
-        if (setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
-                       sizeof(nodelay)) < 0)
-            perror("error: nodelay");
-
-        int nRcvBufferLen = 80 * 1024;
-        int nSndBufferLen = 1 * 1024 * 1024;
-        int nLen = sizeof(int);
-
-        setsockopt(client_fd, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
-        this->sessions[client_fd]->type = 1;
-        this->sessions[client_fd]->sessionId = (uint64_t) client_fd;
-        flags = fcntl(client_fd, F_GETFL, 0);
-        if (flags < 0) on_error("Could not get client socket flags: %s\n", strerror(errno));
-
-        err = fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
-        if (err < 0) on_error("Could not set client socket to be non blocking: %s\n", strerror(errno));
-        int pollerIndex  = client_fd % this->maxWorker;
-        EV_SET(&event_set[pollerIndex], client_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-        if (kevent(this->queue[pollerIndex], &event_set[pollerIndex], 1, NULL, 0, NULL) == -1) {
-            printf("error\n");
-        }
-        EV_SET(&event_set[pollerIndex], client_fd, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
-        if (kevent(this->queue[pollerIndex], &event_set[pollerIndex], 1, NULL, 0, NULL) == -1) {
-            printf("error\n");
-        }
-
-
+        int pollerId = 0;
+#ifdef OS_WINDOWS
+        pollerId = client_fd / 4 % maxWorker;
+#else
+        pollerId = client_fd % maxWorker;
+#endif
+        sockInfo x;
+        x.fd = client_fd;
+        x.event = ACCEPT_EVENT;
+        taskQueue[pollerId].enqueue(x);
     }
 
 
@@ -147,8 +209,11 @@ void Poller::event_change(int ident, int filter, int flags, void *udata) {
 
 int Poller::on_read(struct kevent *event) {
 
+
     int sock = event->ident;
     Session *conn = this->sessions[sock];
+    if (conn->readBuffer.size < 0)
+        return -1;
     unsigned char *buff = conn->readBuffer.buff + conn->readBuffer.size;
 
     int ret = recv(conn->sessionId, buff, conn->readBuffer.capacity - conn->readBuffer.size, 0);
@@ -163,20 +228,12 @@ int Poller::on_read(struct kevent *event) {
         int readBytes = onReadMsg(conn->sessionId, ret);
         conn->readBuffer.size -= readBytes;
         if (conn->readBuffer.size < 0)
-            abort();
-    }else if (ret == 0) {
-        this->closeSession(conn);//TODO
-        //free(self);
-        return 0;
+            return -1;
+    } else if (ret == 0) {
+        return -1;
+    } else {
+        if (errno != EWOULDBLOCK && errno != EAGAIN) return -1;
     }
-    else  {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) return 0;
-        this->closeSession(conn);
-        //free(self);
-        return 0;
-    }
-
-
 
     return 0;
 }
@@ -189,29 +246,44 @@ int Poller::on_write(struct kevent *event) {
     if (conn->writeBuffer.size == 0)
         return 0;
 
+    if (conn->writeBuffer.size < 0)
+        return -1;
+
+
     int ret = send(conn->sessionId, (void *) conn->writeBuffer.buff,
-                    conn->writeBuffer.size, 0);
+                   conn->writeBuffer.size, 0);
 
     if (ret == -1) {
         if (errno != EINTR && errno != EAGAIN) {
             return -1;
         }
-        EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
-    } else {
+    }else if(ret == 0){
+        //TODO
+    }
+    else {
+        onWriteBytes(conn->sessionId, ret);
         conn->writeBuffer.erase(ret);
     }
-    //if (conn->writeBuffer.size == 0)
-        //EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_DISABLE, 0, 0, NULL);
     return 0;
 }
 
 void Poller::closeSession(Session *conn) {
 
-    //struct epoll_event evReg;
-    close(conn->sessionId);
-    conn->type = 0;
-    conn->readBuffer.erase(conn->readBuffer.size);
-    conn->writeBuffer.erase(conn->writeBuffer.size);
+    if (conn->readBuffer.size < 0 || conn->writeBuffer.size < 0)
+        return;
+    int index = conn->sessionId % this->maxWorker;
+    linger lingerStruct;
+
+    lingerStruct.l_onoff = 1;
+    lingerStruct.l_linger = 0;
+    setsockopt(conn->sessionId, SOL_SOCKET, SO_LINGER,
+               (char *) &lingerStruct, sizeof(lingerStruct));
+    conn->readBuffer.size = -1;
+    conn->writeBuffer.size = -1;
+    EV_SET(&event_set[index], conn->sessionId, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    EV_SET(&event_set[index], conn->sessionId, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+
+    closeSocket(conn->sessionId);
 }
 
 void Poller::disconnect(int fd) {
@@ -221,6 +293,7 @@ void Poller::disconnect(int fd) {
 int Poller::run(int port) {
     signal(SIGPIPE, SIG_IGN);
 
+    taskQueue.resize(this->maxWorker);
     for (int i = 0; i < 1/*todo EPOLL_NUM*/; i++)
         this->acceptTaskQueue.emplace_back(moodycamel::ConcurrentQueue<sockInfo>());
     {
@@ -228,11 +301,10 @@ int Poller::run(int port) {
         int err, flags;
 
 
-        for(int i = 0; i < this->maxWorker; i++)
-        {
+        for (int i = 0; i < this->maxWorker; i++) {
             this->queue.push_back(kqueue());
             if (this->queue[i] < 0) on_error("Could not create kqueue: %s\n", strerror(errno));
-            event_list.push_back((struct kevent*)xmalloc(1024 * sizeof(struct kevent)));
+            event_list.push_back((struct kevent *) xmalloc(1024 * sizeof(struct kevent)));
 
         }
         event_set.resize(this->maxWorker);
@@ -325,8 +397,7 @@ int Poller::sendMsg(uint64_t fd, const Msg &msg) {
             conn->writeBuffer.push_back(len, data);
         }
     }
-    if (leftBytes > 0)
-    {
+    if (leftBytes > 0) {
         EV_SET(&event_set[pollerIndex], conn->sessionId, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, NULL);
     }
 
