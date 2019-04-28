@@ -16,7 +16,7 @@ Poller::Poller(int port, int threadsNum) {
 }
 
 int Poller::sendMsg(Session &conn, const Msg &msg) {
-    u_int64 fd = conn.sessionId;
+    u_int64_t fd = conn.sessionId;
     unsigned char *data = msg.buff;
     int len = msg.len;
     int leftBytes = 0;
@@ -109,7 +109,7 @@ void Poller::closeSession(Session &conn) {
 #if defined(OS_WINDOWS)
     int index = conn.sessionId / 4 % this->maxWorker;
 #else
-    int index = conn->sessionId % this->maxWorker;
+    int index = conn.sessionId % this->maxWorker;
 #endif
     std::set<uint64_t >& clientVec = this->clients[index];
     std::set<uint64_t>& acceptClientFdsVec = this->acceptClientFds[index];
@@ -184,7 +184,7 @@ void Poller::workerThreadCB(int index) {
             FD_ZERO(&fdWrite);
             FD_ZERO(&fdExp);
 
-            SOCKET maxSock = 0;
+            uint64_t maxSock = 0;
             for (auto &E:acceptClientFdsVec)
                 clientVec.insert(E);
             acceptClientFdsVec.clear();
@@ -302,22 +302,22 @@ void Poller::listenThreadCB(int port) {
     setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 #endif
 
-    if (SOCKET_ERROR == bind(this->lisSock, (sockaddr *) &addr, sizeof(addr)))
+    if (-1 == bind(this->lisSock, (sockaddr *) &addr, sizeof(addr)))
         printf("err: bind\n");
 
-    if (SOCKET_ERROR == ::listen(this->lisSock, 1024))
+    if (-1 == ::listen(this->lisSock, 1024))
         printf("err: listen\n");
 
     sockaddr_in clientAddr = {};
     int nAddrLen = sizeof(sockaddr_in);
-    u_int64 clientSocket = 0;
+    u_int64_t clientSocket = 0;
     while (true) {
 #ifdef OS_WINDOWS
         clientSocket = accept(this->lisSock, (sockaddr *) &clientAddr, &nAddrLen);
 #else
-        _cSock = accept(this->lisSock, (sockaddr *) &clientAddr, (socklen_t *) &nAddrLen);
+        clientSocket = accept(this->lisSock, (sockaddr *) &clientAddr, (socklen_t *) &nAddrLen);
 #endif
-        if ((u_int64)(~0) == clientSocket) {//TODO
+        if ((u_int64_t)(~0) == clientSocket) {//TODO
             printf("err: accept\n");
             exit(-2);
         }

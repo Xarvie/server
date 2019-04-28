@@ -2,12 +2,18 @@
 #define SERVER_1SOCKETINTERFACE_H
 #include <string>
 #include <iostream>
+
+#if defined(OS_WINDOWS)
 #include <ws2tcpip.h>
 #include <winsock2.h>
+#else
+#include <unistd.h>
+#include <stdlib.h>
+#endif
 
 #include "SystemReader.h"
 
-static int closeSocket(u_int64 fd) {
+static int closeSocket(u_int64_t fd) {
 #ifdef OS_WINDOWS
     return closesocket(fd);
 #else

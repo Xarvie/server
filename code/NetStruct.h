@@ -75,6 +75,7 @@ enum RWMOD {
 struct Addr {
     std::string ip;
     std::string port;
+    int type;
 };
 
 struct Msg {
@@ -82,12 +83,15 @@ struct Msg {
     unsigned char *buff;
 };
 
-union RawSocket {
-    int unixSocket;
-    void *windowsSocket = nullptr;
+enum {
+    ACCEPT_EVENT,
+    RW_EVENT
 };
-
-
+enum {
+    REQ_DISCONNECT,
+    REQ_SHUTDOWN,
+    REQ_CONNECT
+};
 
 
 #endif //SERVER_NETSTRUCT_H
