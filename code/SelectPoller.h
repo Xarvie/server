@@ -49,7 +49,7 @@ protected:
     };
     std::vector<Session *> sessions;
     int maxWorker = 0;
-    uint64_t lisSock = 0;
+    uint64_t listenSocket = 0;
     int port = 0;
     volatile bool isRunning = false;
     std::vector<std::thread> workThreads;

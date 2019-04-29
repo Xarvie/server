@@ -39,19 +39,21 @@ protected:
 
     bool createListenSocket(int port);
 
-    int lisSock = 0;
+    int listenSocket = 0;
     int port = 0;
     int maxWorker = 0;
-
-    std::vector<int> queue;
-    struct kevent *events;
-    std::vector<struct kevent> event_set;
-    std::vector<struct kevent *> event_list;
     volatile bool isRunning = false;
+
     std::vector<std::thread> workThreads;
     std::thread listenThread;
     std::vector<moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
     std::vector<Session *> sessions;
+    std::vector<int> queue;
+
+    struct kevent *events = NULL;
+    std::vector<struct kevent> event_set;
+    std::vector<struct kevent *> event_list;
+
 
 
 };

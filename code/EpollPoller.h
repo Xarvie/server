@@ -52,9 +52,9 @@ protected:
 
     std::vector<Session *> sessions;
 
-    int maxWorker = 4;
+    int maxWorker = 0;
     std::vector<int> epolls;
-    int lisSock = 0;
+    int listenSocket = 0;
     int port = 0;
     std::vector<std::thread> workThreads;
     std::thread listenThread;

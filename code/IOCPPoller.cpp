@@ -39,7 +39,7 @@ void Poller::workerThreadCB(int pollIndex) {
     DWORD dwFlags = 0;
     DWORD dwIoSize = 0;
 
-    while (TRUE) {
+    while (this->isRunning) {
         bSuccess = GetQueuedCompletionStatus(hIOCP, &dwIoSize,
                                              (PDWORD_PTR) &lpPerSocketContextnullptr,
                                              (LPOVERLAPPED *) &lpOverlapped,
@@ -200,7 +200,7 @@ void Poller::listenThreadCB() {
     DWORD dwFlags = 0;
     int nRet = 0;
 
-    while (true) {
+    while (this->isRunning) {
         sdAccept = WSAAccept(g_sdListen, nullptr, nullptr, nullptr, 0);
 
         if (sdAccept == SOCKET_ERROR) {

@@ -31,7 +31,7 @@ Poller::~Poller() {
         sessions[i]->readBuffer.destroy();
         sessions[i]->writeBuffer.destroy();
     }
-    close(lisSock);
+    close(listenSocket);
 }
 
 struct event_data {
@@ -134,8 +134,8 @@ void Poller::listenThreadCB() {
     struct sockaddr client;
     socklen_t client_len = sizeof(client);
 
-    while (true) {
-        int client_fd = accept(this->lisSock, &client, &client_len);
+    while (this->isRunning) {
+        int client_fd = accept(this->listenSocket, &client, &client_len);
         if (client_fd < 0) {
             on_error("Accept failed (should this be fatal?): %s\n", strerror(errno));
         }
@@ -231,32 +231,32 @@ void Poller::closeSession(Session &conn) {
 bool Poller::createListenSocket(int port)
  {
         int err = 0, flags = 0;
-        this->lisSock = socket(AF_INET, SOCK_STREAM, 0);
-        if (this->lisSock < 0) on_error("err: socket");
+        this->listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (this->listenSocket < 0) on_error("err: socket");
         struct sockaddr_in server;
         server.sin_family = AF_INET;
         server.sin_port = htons(port);
         server.sin_addr.s_addr = htonl(INADDR_ANY);
 
         int opt_val = 1;
-        setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
+        setsockopt(this->listenSocket, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 
-        err = bind(this->lisSock, (struct sockaddr *) &server, sizeof(server));
+        err = bind(this->listenSocket, (struct sockaddr *) &server, sizeof(server));
         if (err < 0) on_error("Could not bind server socket: %s\n", strerror(errno));
 
-        flags = fcntl(this->lisSock, F_GETFL, 0);
+        flags = fcntl(this->listenSocket, F_GETFL, 0);
         if (flags < 0) on_error("Could not get server socket flags: %s\n", strerror(errno));
 
-        // err = fcntl(this->lisSock, F_SETFL, flags | O_NONBLOCK);
+        // err = fcntl(this->listenSocket, F_SETFL, flags | O_NONBLOCK);
         //if (err < 0) on_error("Could set server socket to be non blocking: %s\n", strerror(errno));
 
-        err = ::listen(this->lisSock, SOMAXCONN);
+        err = ::listen(this->listenSocket, SOMAXCONN);
         if (err < 0) on_error("Could not listen: %s\n", strerror(errno));
         return 0;
     }
 int Poller::run() {
     signal(SIGPIPE, SIG_IGN);
-
+        this->isRunning = true;
     taskQueue.resize(this->maxWorker);
     event_set.resize(this->maxWorker);
         for (int i = 0; i < this->maxWorker; i++) {

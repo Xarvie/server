@@ -128,7 +128,7 @@ void Poller::workerThreadCB(int index) {
     moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[index];
     sockInfo event = {0};
 
-    while (true) {
+    while (this->isRunning) {
         while (queue.try_dequeue(event)) {
             if (event.event == ACCEPT_EVENT) {
                 int ret = 0;
@@ -248,6 +248,7 @@ int Poller::run() {
 #else
     signal(SIGPIPE, SIG_IGN);
 #endif
+    this->isRunning = true;
     taskQueue.resize(maxWorker);
     clients.resize(maxWorker);
     acceptClientFds.resize(maxWorker);
@@ -285,11 +286,11 @@ Poller::~Poller() {
         sessions[i]->readBuffer.destroy();
         sessions[i]->writeBuffer.destroy();
     }
-    close(lisSock);
+    close(listenSocket);
 }
 
 bool Poller::createListenSocket(int port) {
-    this->lisSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    this->listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
@@ -303,15 +304,15 @@ bool Poller::createListenSocket(int port) {
     //TODO
 #else
     int opt_val = 1;
-    setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
+    setsockopt(this->listenSocket, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 #endif
 
-    if (-1 == bind(this->lisSock, (sockaddr *) &addr, sizeof(addr))) {
+    if (-1 == bind(this->listenSocket, (sockaddr *) &addr, sizeof(addr))) {
         printf("err: bind\n");
         return false;
     }
 
-    if (-1 == ::listen(this->lisSock, 1024)) {
+    if (-1 == ::listen(this->listenSocket, 1024)) {
         printf("err: listen\n");
         return false;
     }
@@ -322,16 +323,16 @@ void Poller::listenThreadCB() {
     sockaddr_in clientAddr = {};
     int nAddrLen = sizeof(sockaddr_in);
     u_int64_t clientSocket = 0;
-    while (true) {
+    while (this->isRunning) {
 #ifdef OS_WINDOWS
-        clientSocket = accept(this->lisSock, (sockaddr *) &clientAddr, &nAddrLen);
+        clientSocket = accept(this->listenSocket, (sockaddr *) &clientAddr, &nAddrLen);
         if (INVALID_SOCKET == clientSocket) {//TODO
             printf("err: accept\n");
             exit(-2);
         }
         int pollerId = clientSocket / 4 % maxWorker;
 #else
-        clientSocket = accept(this->lisSock, (sockaddr *) &clientAddr, (socklen_t *) &nAddrLen);
+        clientSocket = accept(this->listenSocket, (sockaddr *) &clientAddr, (socklen_t *) &nAddrLen);
         if (-1 == clientSocket) {//TODO
             printf("err: accept\n");
             exit(-2);

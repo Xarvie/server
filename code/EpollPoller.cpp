@@ -35,7 +35,7 @@ Poller::~Poller() {
     for (int epi = 0; epi < this->maxWorker; ++epi) {
         close(epolls[epi]);
     }
-    close(lisSock);
+    close(listenSocket);
 }
 
 void Poller::closeSession(Session &conn) {
@@ -149,7 +149,7 @@ void Poller::workerThreadCB(int index) {
     struct epoll_event evReg;
     sockInfo task;
     moodycamel::ConcurrentQueue<sockInfo> &queue = taskQueue[index];
-    while (true) {
+    while (this->isRunning) {
         while (queue.try_dequeue(task)) {
             if (task.event == ACCEPT_EVENT) {
                 int ret = 0;
@@ -228,10 +228,10 @@ void Poller::listenThreadCB() {
 
     struct epoll_event evReg;
     evReg.events = EPOLLIN;
-    evReg.data.fd = this->lisSock;
+    evReg.data.fd = this->listenSocket;
 
 
-    epoll_ctl(lisEpfd, EPOLL_CTL_ADD, this->lisSock, &evReg);
+    epoll_ctl(lisEpfd, EPOLL_CTL_ADD, this->listenSocket, &evReg);
 
     struct epoll_event event;
 
@@ -239,7 +239,7 @@ void Poller::listenThreadCB() {
         int numEvent = epoll_wait(lisEpfd, &event, 1, 1000);
         //TODO con
         if (numEvent > 0) {
-            int sock = accept(this->lisSock, NULL, NULL);
+            int sock = accept(this->listenSocket, NULL, NULL);
             if (sock > 0) {
                 int pollerId = 0;
 #ifdef OS_WINDOWS
@@ -259,33 +259,33 @@ void Poller::listenThreadCB() {
 }
 
 bool Poller::createListenSocket(int port) {
-    lisSock = socket(AF_INET, SOCK_STREAM, 0);
+    listenSocket = socket(AF_INET, SOCK_STREAM, 0);
 
     int reuse = 1;
-    setsockopt(lisSock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
     int nRcvBufferLen = 32 * 1024 * 1024;
     int nSndBufferLen = 32 * 1024 * 1024;
     int nLen = sizeof(int);
 
-    setsockopt(lisSock, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
-    setsockopt(lisSock, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
+    setsockopt(listenSocket, SOL_SOCKET, SO_SNDBUF, (char *) &nSndBufferLen, nLen);
+    setsockopt(listenSocket, SOL_SOCKET, SO_RCVBUF, (char *) &nRcvBufferLen, nLen);
 
     int flag;
-    flag = fcntl(lisSock, F_GETFL);
-    fcntl(lisSock, F_SETFL, flag | O_NONBLOCK);
+    flag = fcntl(listenSocket, F_GETFL);
+    fcntl(listenSocket, F_SETFL, flag | O_NONBLOCK);
 
     struct sockaddr_in lisAddr;
     lisAddr.sin_family = AF_INET;
     lisAddr.sin_port = htons(port);
     lisAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(lisSock, (struct sockaddr *) &lisAddr, sizeof(lisAddr)) == -1) {
+    if (bind(listenSocket, (struct sockaddr *) &lisAddr, sizeof(lisAddr)) == -1) {
         printf("bind");
         return false;
     }
 
-    if (::listen(lisSock, 4096) < 0) {
+    if (::listen(listenSocket, 4096) < 0) {
         printf("listen");
         return false;
     }
@@ -294,12 +294,12 @@ bool Poller::createListenSocket(int port) {
 }
 
 int Poller::run() {
-    {/* init */
 
+    {/* init */
+        this->isRunning = true;
     }
     {/* init queue  */
         taskQueue.resize(this->maxWorker);
-        isRunning = false;
     }
     {/* create pollers*/
         epolls.resize(maxWorker);
@@ -325,7 +325,7 @@ int Poller::run() {
         }
     }
     {/*exit*/
-        close(lisSock);
+        close(listenSocket);
     }
     return 0;
 }
