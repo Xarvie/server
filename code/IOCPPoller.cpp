@@ -192,7 +192,7 @@ int Poller::closeSession(uint64_t sessionId) {
     return 0;
 }
 
-void Poller::listenThreadCB(int port) {
+void Poller::listenThreadCB() {
 
     SOCKET sdAccept = INVALID_SOCKET;
     PER_SOCKET_CONTEXT *lpPerSocketContext = nullptr;
@@ -297,7 +297,7 @@ int Poller::run(int port) {
         }
     }
     {/* start listen*/
-        this->listenThread = std::thread([=] { this->listenThreadCB(port); });
+        this->listenThread = std::thread([=] { this->listenThreadCB(); });
     }
     {/*wait exit */
         listenThread.join();

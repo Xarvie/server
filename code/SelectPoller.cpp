@@ -262,13 +262,16 @@ int Poller::run() {
     clients.resize(maxWorker);
     acceptClientFds.resize(maxWorker);
 
+    {/* create listen*/
+        this->createListenSocket(port);
+    }
     {/* start workers*/
         for (int i = 0; i < this->maxWorker; ++i) {
             workThreads.emplace_back(std::thread([=] { this->workerThreadCB(i); }));
         }
     }
     {/* start listen*/
-        this->listenThread = std::thread([=] { this->listenThreadCB(port); });
+        this->listenThread = std::thread([=] { this->listenThreadCB(); });
     }
     this->listenThread.join();
     for (auto &E:workThreads) {
@@ -279,13 +282,19 @@ int Poller::run() {
 }
 
 Poller::~Poller() {
-
+    if (this->listenThread.joinable()) {
+        this->listenThread.join();
+    }
+    for (int c = 0; c < CONN_MAXFD; ++c) {
+        sessions[c]->readBuffer.destroy();
+        sessions[c]->writeBuffer.destroy();
+    }
+    close(lisSock);
 }
 
-void Poller::listenThreadCB(int port) {
-
+bool Poller::createListenSocket(int port)
+{
     this->lisSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
@@ -302,12 +311,19 @@ void Poller::listenThreadCB(int port) {
     setsockopt(this->lisSock, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
 #endif
 
-    if (-1 == bind(this->lisSock, (sockaddr *) &addr, sizeof(addr)))
+    if (-1 == bind(this->lisSock, (sockaddr *) &addr, sizeof(addr))){
         printf("err: bind\n");
+        return false;
+    }
 
-    if (-1 == ::listen(this->lisSock, 1024))
+    if (-1 == ::listen(this->lisSock, 1024)){
         printf("err: listen\n");
+        return false;
+    }
+    return true;
+}
 
+void Poller::listenThreadCB() {
     sockaddr_in clientAddr = {};
     int nAddrLen = sizeof(sockaddr_in);
     u_int64_t clientSocket = 0;

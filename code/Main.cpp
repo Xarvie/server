@@ -1,4 +1,4 @@
-#include "Spider.h"
+#include "Poller.h"
 
 
 class Server :public Poller{
@@ -20,8 +20,8 @@ public:
 };
 int main()
 {
-    Server s(9876, 4);
-    s.run();
+    Server sx(9876, 4);
+    sx.run();
 
     return 0;
 }

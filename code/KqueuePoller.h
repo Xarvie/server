@@ -35,8 +35,9 @@ protected:
 
     void workerThreadCB(int index);
 
-    void listenThreadCB(int port);
+    void listenThreadCB();
 
+    bool createListenSocket(int port);
 
     int lisSock = 0;
     int port = 0;

@@ -24,16 +24,18 @@ public:
 
     int run();
 
+    void closeSession(Session &conn);
+
 protected:
     int handleReadEvent(Session &conn);
 
     int handleWriteEvent(Session &conn);
 
-    void closeSession(Session &conn);
-
     void workerThreadCB(int index);
 
-    void listenThreadCB(int port);
+    void listenThreadCB();
+
+    bool createListenSocket(int port);
 
 
     enum {

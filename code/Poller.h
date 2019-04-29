@@ -1,5 +1,5 @@
-#ifndef MAIN_SPIDER_H
-#define MAIN_SPIDER_H
+#ifndef MAIN_POLLER_H
+#define MAIN_POLLER_H
 
 #include "SystemReader.h"
 #include "Buffer.h"
@@ -23,4 +23,4 @@
 
 #endif
 
-#endif //MAIN_SPIDER_H
+#endif //MAIN_POLLER_H

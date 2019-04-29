@@ -57,7 +57,7 @@ public:
     int connect(std::string ip, std::string port);
 
     void workerThreadCB(int pollIndex);
-    void listenThreadCB(int port);
+    void listenThreadCB();
     PER_SOCKET_CONTEXT* UpdateCompletionPort(int workerId, SOCKET s, RWMOD ClientIo, BOOL bAddToList);
     int closeSession(uint64_t sessionId);
 

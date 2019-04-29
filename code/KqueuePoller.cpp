@@ -123,7 +123,7 @@ void Poller::workerThreadCB(int pollerIndex) {
     }
 }
 
-void Poller::listenThreadCB(int port) {
+void Poller::listenThreadCB() {
     int err, flags;
 
     struct sockaddr client;
@@ -145,13 +145,9 @@ void Poller::listenThreadCB(int port) {
         x.event = ACCEPT_EVENT;
         taskQueue[pollerId].enqueue(x);
     }
-
-
 }
 
 int Poller::handleReadEvent(struct kevent *event) {
-
-
     int sock = event->ident;
     Session *conn = this->sessions[sock];
     if (conn->readBuffer.size < 0)
@@ -191,7 +187,6 @@ int Poller::handleWriteEvent(struct kevent *event) {
     if (conn->writeBuffer.size < 0)
         return -1;
 
-
     int ret = send(conn->sessionId, (void *) conn->writeBuffer.buff,
                    conn->writeBuffer.size, 0);
 
@@ -228,25 +223,11 @@ void Poller::closeSession(Session &conn) {
     closeSocket(conn.sessionId);
 }
 
-int Poller::run() {
-    signal(SIGPIPE, SIG_IGN);
-
-    taskQueue.resize(this->maxWorker);
-    {
-
-        int err, flags;
-
-
-        for (int i = 0; i < this->maxWorker; i++) {
-            this->queue.push_back(kqueue());
-            if (this->queue[i] < 0) on_error("Could not create kqueue: %s\n", strerror(errno));
-            event_list.push_back((struct kevent *) xmalloc(1024 * sizeof(struct kevent)));
-
-        }
-        event_set.resize(this->maxWorker);
-
+bool Poller::createListenSocket(int port)
+ {
+        int err = 0, flags = 0;
         this->lisSock = socket(AF_INET, SOCK_STREAM, 0);
-        if (this->lisSock < 0) on_error("Could not create server socket: %s\n", strerror(errno));
+        if (this->lisSock < 0) on_error("err: socket");
         struct sockaddr_in server;
         server.sin_family = AF_INET;
         server.sin_port = htons(port);
@@ -267,6 +248,20 @@ int Poller::run() {
         err = ::listen(this->lisSock, SOMAXCONN);
         if (err < 0) on_error("Could not listen: %s\n", strerror(errno));
 
+    }
+int Poller::run() {
+    signal(SIGPIPE, SIG_IGN);
+
+    taskQueue.resize(this->maxWorker);
+    event_set.resize(this->maxWorker);
+        for (int i = 0; i < this->maxWorker; i++) {
+            this->queue.push_back(kqueue());
+            if (this->queue[i] < 0) on_error("Could not create kqueue: %s\n", strerror(errno));
+            event_list.push_back((struct kevent *) xmalloc(1024 * sizeof(struct kevent)));
+
+        }
+    {/* create listen*/
+        this->createListenSocket(port);
     }
 
     for (int i = 0; i < this->maxWorker; i++) {
