@@ -48,7 +48,7 @@ protected:
     std::vector<struct kevent> event_set;
     std::vector<struct kevent *> event_list;
     volatile bool isRunning = false;
-    std::vector<std::thread> workerThreads;
+    std::vector<std::thread> workThreads;
     std::thread listenThread;
     std::vector<moodycamel::ConcurrentQueue<sockInfo> > taskQueue;
     std::vector<Session *> sessions;

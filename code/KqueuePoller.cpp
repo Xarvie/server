@@ -20,7 +20,7 @@ Poller::Poller(int port, int threadsNum) {
 Poller::~Poller() {
     this->isRunning = false;
 
-    for (auto &E:workThreads) {
+    for (auto &E:this->workThreads) {
         if(E.joinable())
             E.join();
     }
@@ -252,7 +252,7 @@ bool Poller::createListenSocket(int port)
 
         err = ::listen(this->lisSock, SOMAXCONN);
         if (err < 0) on_error("Could not listen: %s\n", strerror(errno));
-
+        return 0;
     }
 int Poller::run() {
     signal(SIGPIPE, SIG_IGN);
@@ -270,13 +270,13 @@ int Poller::run() {
     }
 
     for (int i = 0; i < this->maxWorker; i++) {
-        workerThreads.emplace_back(std::thread([=] { this->workerThreadCB(i); }));//TODO
+        workThreads.emplace_back(std::thread([=] { this->workerThreadCB(i); }));//TODO
     }
 
-    listenThread = std::thread([=] { this->listenThreadCB(port); });//TODO
+    listenThread = std::thread([=] { this->listenThreadCB(); });//TODO
 
     listenThread.join();
-    for (auto &E:workerThreads) {
+    for (auto &E:workThreads) {
         E.join();
     }
 
