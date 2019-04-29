@@ -10,10 +10,10 @@
 #include <unistd.h>
 #include <stdlib.h>
 #endif
-
+#include <cstdint>
 #include "SystemReader.h"
 
-static int closeSocket(u_int64_t fd) {
+static int closeSocket(uint64_t fd) {
 #ifdef OS_WINDOWS
     return closesocket(fd);
 #else

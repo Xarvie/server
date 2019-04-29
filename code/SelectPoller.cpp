@@ -286,7 +286,7 @@ Poller::~Poller() {
         sessions[i]->readBuffer.destroy();
         sessions[i]->writeBuffer.destroy();
     }
-    close(listenSocket);
+    closeSocket(listenSocket);
 }
 
 bool Poller::createListenSocket(int port) {
@@ -322,7 +322,7 @@ bool Poller::createListenSocket(int port) {
 void Poller::listenThreadCB() {
     sockaddr_in clientAddr = {};
     int nAddrLen = sizeof(sockaddr_in);
-    u_int64_t clientSocket = 0;
+    uint64_t clientSocket = 0;
     while (this->isRunning) {
 #ifdef OS_WINDOWS
         clientSocket = accept(this->listenSocket, (sockaddr *) &clientAddr, &nAddrLen);
