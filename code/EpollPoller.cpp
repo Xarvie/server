@@ -164,7 +164,7 @@ void Poller::workerThreadCB(int index) {
                 int nodelay = 1;
                 if (setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &nodelay,
                                sizeof(nodelay)) < 0)
-                    perror("err: nodelay");
+                    perror("err: nodelay\n");
 #if defined(OS_WINDOWS)
                 unsigned long ul = 1;
                 ret = ioctlsocket(clientFd, FIONBIO, (unsigned long *) &ul);//设置成非阻塞模式。
@@ -173,10 +173,10 @@ void Poller::workerThreadCB(int index) {
 #else
                 int flags = fcntl(clientFd, F_GETFL, 0);
                 if (flags < 0)
-                    printf("err: F_GETFL");
+                    printf("err: F_GETFL\n");
 
                 if(fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) < 0);
-                    printf("err: F_SETFL");
+                    printf("err: F_SETFL\n");
 #endif
 
                 sessions[clientFd]->readBuffer.size = 0;
