@@ -18,12 +18,18 @@ Poller::Poller(int port, int threadsNum) {
 }
 
 Poller::~Poller() {
+    this->isRunning = false;
+
+    for (auto &E:workThreads) {
+        if(E.joinable())
+            E.join();
+    }
     if (this->listenThread.joinable()) {
         this->listenThread.join();
     }
-    for (int c = 0; c < CONN_MAXFD; ++c) {
-        sessions[c]->readBuffer.destroy();
-        sessions[c]->writeBuffer.destroy();
+    for (int i = 0; i < CONN_MAXFD; i++) {
+        sessions[i]->readBuffer.destroy();
+        sessions[i]->writeBuffer.destroy();
     }
 
     for (int epi = 0; epi < this->maxWorker; ++epi) {
